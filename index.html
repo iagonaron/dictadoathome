@@ -1337,6 +1337,7 @@ function pickRhythm(catalog, ts, rnd, opts){
     plan = opts.pulsePlan.map(lv=>{
       if(lv==='oca'){ return canOca? 'oca' : (canPun?'pun':'rec'); }     // alto preferente ocasional
       if(lv==='ocapun'){ return (rnd()<0.5&&canPun)? 'pun' : (canOca?'oca':(canPun?'pun':'rec')); }
+      if(lv==='pun'){ return canPun? 'pun' : (canOca?'oca':'rec'); }     // puntual (más difícil); fallback oca/rec
       return lv; // 'pulse', 'rec', 'bas'...
     });
   } else
@@ -1580,6 +1581,11 @@ function generateDictado(active, opts){
   let regWindow = { lo: Math.max(57, winFloor-2), hi: Math.min(76, winFloor+11) };
   // tesitura estricta impuesta por el curso (p.ej. 1º GE: Do4–Do5)
   if(LV.regLo && LV.regHi){ regWindow = { lo: LV.regLo, hi: LV.regHi }; }
+  // REGISTRO ESPECIAL LA MENOR (desde 2º GE): vivir en la franja central Do4–Do5, techo Mi5,
+  // y La3 solo como nota puntual de remate de arpegio (no zona de paseo).
+  const isAminor = (k.mode==='minor' && tpc===9); // La menor
+  const aMinorReg = !!LV.aMinorReg && isAminor;
+  if(aMinorReg){ regWindow = { lo: 57, hi: 76 }; } // La3..Mi5 disponible, pero con sesgo al centro (abajo)
   const useLo = regWindow.lo;
   const useHi = regWindow.hi;
   const scale=scalePitches(k.tonicMidi, k.mode, useLo, useHi);
@@ -1592,6 +1598,11 @@ function generateDictado(active, opts){
   if(LV.regLo && LV.regHi){
     const tn=scale.filter(s=>((s.midi%12)+12)%12===tonicPc && s.midi>=useLo && s.midi<=useHi);
     if(tn.length) startTonic=tn[0].midi;
+  }
+  // La menor con registro especial: empezar en La4 (69), la tónica central, no en La3 (grave)
+  if(aMinorReg){
+    const a4 = scale.find(s=>s.midi===69);
+    if(a4) startTonic=69;
   }
 
   const PULSES=PULSES_OF[ts];
@@ -1783,7 +1794,7 @@ function generateDictado(active, opts){
         structSyncopa=true; // este compás lleva la síncopa
       } else if(is24){
         if(isBar26) structPlan=['oca','pulse'];      // c2/c6: oca/pun + figura de pulso
-        else if(isBar37) structPlan=['oca','rec'];   // c3/c7: oca/pun + recurrente
+        else if(isBar37) structPlan=['pun','rec'];   // c3/c7: PUNTUAL + recurrente (más exigente)
       } else if(is34){
         if(isBar26||isBar37) structPlan=['oca','pulse','rec']; // c2/3/6/7: oca/pun + figura pulso + recurrente
       } else if(is68){
@@ -2352,6 +2363,28 @@ function generateDictado(active, opts){
     });
   } else {
     measures.forEach(m=>{ m.notes.forEach(n=>{ if(!n.rest) delete n.alt; }); });
+  }
+
+  // ===== CENTRADO DE REGISTRO LA MENOR (desde 2º GE) =====
+  // Vivir en Do4–Do5; subir una octava las notas por debajo de Do4, salvo un La3 puntual
+  // que sirva de remate de arpegio cerca del final. Techo Mi5 (76).
+  if(aMinorReg){
+    const flat=[]; measures.forEach((m,mi)=>m.notes.forEach((n,ni)=>{ if(!n.rest) flat.push({n,mi,ni}); }));
+    const total=flat.length;
+    flat.forEach((o,i)=>{
+      const n=o.n;
+      if(n._lock) return;
+      // permitir La3 (57) como remate sólo en el último 20% del dictado y si es nota del arpegio
+      const nearEnd = i >= Math.floor(total*0.8);
+      if(n.midi < 60){ // por debajo de Do4
+        const isA3remate = (n.midi===57 && nearEnd);
+        if(!isA3remate){
+          const up=n.midi+12;
+          if(up<=76){ n.midi=up; n.k=midiToVexKey(up, useFlats, n.alt); }
+        }
+      }
+      if(n.midi>76){ const dn=n.midi-12; if(dn>=57){ n.midi=dn; n.k=midiToVexKey(dn, useFlats, n.alt); } }
+    });
   }
 
   // ===== LÍMITE DURO DE INTERVALO (última autoridad) =====
@@ -3182,7 +3215,7 @@ function buildRitLaws(){
   const groups=[
     {t:'Estructura por compás (3º y 4º GE)', items:[
       'Compases 2 y 6: 1er pulso ocasional o puntual, 2º pulso figura de pulso. (También en cursos anteriores y en 6/8.)',
-      'Compases 3 y 7 (en 2/4): 1er pulso ocasional o puntual, 2º pulso recurrente.',
+      'Compases 3 y 7 (en 2/4): 1er pulso puntual (figura difícil), 2º pulso recurrente.',
       'En 3/4 — compases 2, 3, 6 y 7: 1er pulso ocasional/puntual, 2º pulso figura de pulso, 3er pulso recurrente.',
       'Síncopa en 2/4: 50% de probabilidad por dictado (corchea-negra-corchea o variante disponible del curso). Como máximo una; cuando aparece, sustituye la regla de uno de los compases 2, 3, 6 o 7.',
       'Síncopa en 3/4: 30% de probabilidad por dictado (corchea-negra-corchea ocupando los dos primeros pulsos; el tercer pulso de ese compás es figura de pulso). Como máximo una, en los compases 2, 3, 6 o 7.',
@@ -3324,7 +3357,7 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
           b_negra:{on:true,freq:'bas'}, b_blanca34:{on:true,freq:'oca'}, b_2cor:{on:true,freq:'bas'},
           b_npuntC:{on:true,freq:'oca'}, b_4semi:{on:true,freq:'oca'}, b_2semi_v1:{on:true,freq:'oca'},
           b_2semi_v2:{on:true,freq:'pun'}, b_mix:{on:true,freq:'oca'}, b_sinc_v1:{on:true,freq:'oca'},
-          b_sinc_v2:{on:true,freq:'oca'}, b_tresC:{on:true,freq:'oca'}
+          b_sinc_v2:{on:true,freq:'oca'}, b_sincBreve:{on:true,freq:'pun'}, b_tresC:{on:true,freq:'oca'}
         }
       };
     }
@@ -3362,7 +3395,7 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
       b_negra:{on:true,freq:'bas'}, b_blanca34:{on:true,freq:'oca'},
       b_2cor:{on:true,freq:'bas'}, b_npuntC:{on:true,freq:'oca'}, b_4semi:{on:true,freq:'oca'},
       b_2semi_v1:{on:true,freq:'oca'}, b_mix:{on:true,freq:'pun'}, b_sinc_v1:{on:true,freq:'pun'},
-      b_tresC:{on:true,freq:'oca'}
+      b_tresC:{on:true,freq:'pun'}
     }
   };
 
@@ -3391,6 +3424,10 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     if(id==='ge3' || id==='ge4'){
       lvl.barStructRules = true;
       lvl.bar25rule = false; // las reglas estructurales sustituyen a la antigua bar25
+    }
+    // REGISTRO LA MENOR centrado en Do4–Do5 (techo Mi5, La3 sólo de remate): desde 2º GE en adelante.
+    if(id==='ge2' || id==='ge3' || id==='ge4'){
+      lvl.aMinorReg = true;
     }
     window.DS_LEVEL = lvl;
     const co=COURSES.find(x=>x.id===id);
