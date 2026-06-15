@@ -72,7 +72,7 @@
   .gen-meta{color:var(--muted); font-size:13px; margin:0 0 12px;}
   .gen-layout{ display:grid; grid-template-columns: minmax(0,2fr) minmax(280px,1fr); gap:18px; flex:1 1 auto; min-height:0; align-items:stretch; }
   @media (max-width:1100px){ .gen-layout{ grid-template-columns:1fr; } }
-  .score-panel{ background:var(--paper); border-radius:16px; padding:22px 18px; min-width:0; overflow:hidden; box-shadow:0 10px 40px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; min-height:0; position:relative; }
+  .score-panel{ background:var(--paper); border-radius:16px; padding:22px 18px; min-width:0; overflow:hidden; box-shadow:0 10px 40px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; min-height:276px; box-sizing:border-box; position:relative; transition:opacity .5s ease; }
   .score-panel svg{ display:block; margin:0 auto; max-width:100%; height:auto; }
   #barHL{position:absolute; pointer-events:none; background:var(--accent-soft); border-radius:6px; display:none; transition:left .04s linear, width .04s linear; z-index:2;}
   #countInOverlay{position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; z-index:3;
@@ -513,6 +513,30 @@
   .difficulty-hint{ display:none; text-align:right; margin:10px 0 0; font-size:12.5px; color:var(--muted2);
     font-style:italic; }
 
+  /* === Cartel "Genera un dictado": tarjeta oscura del MISMO tamaño que el pentagrama === */
+  .score-wrap{ position:relative; }
+  .empty-cta{ min-height:276px; box-sizing:border-box; display:flex; align-items:center; justify-content:center;
+    border-radius:16px; padding:22px 18px;
+    background:linear-gradient(180deg, var(--panel2), var(--panel));
+    border:1px solid var(--line); box-shadow:0 10px 40px rgba(0,0,0,0.4); }
+  .empty-cta-btn{ display:inline-flex; align-items:center; gap:14px; cursor:pointer;
+    color:var(--ink); background:rgba(233,237,255,.08);
+    border:1px solid var(--line); border-radius:16px; padding:22px 44px;
+    font-size:21px; letter-spacing:.6px; text-transform:uppercase;
+    transition:background .15s, border-color .15s, transform .12s; }
+  .empty-cta-btn:hover{ background:rgba(233,237,255,.16); border-color:var(--muted); transform:translateY(-1px); }
+  .empty-cta-btn:active{ transform:translateY(0); }
+  .empty-cta-btn svg{ width:32px; height:32px; color:var(--ink); }
+  .ecta-txt{ font-weight:300; }       /* "UN DICTADO" fino */
+  .ecta-txt b{ font-weight:800; }      /* "GENERA" negrita */
+
+  /* fundido de aparición del pentagrama */
+  .score-panel.fade-in{ animation:scoreFade .6s ease; }
+  @keyframes scoreFade{ from{ opacity:0; } to{ opacity:1; } }
+
+  /* === Reproductores bloqueados hasta generar === */
+  .players-locked{ opacity:.4; pointer-events:none; filter:grayscale(.4); user-select:none; }
+
 </style>
 </head>
 <body>
@@ -528,7 +552,7 @@
     <div class="lm-top">
       <div class="lm-brand">
         <h1 class="lm-h1"><span class="lm">LM</span><span class="eav">EAV</span> <span class="home2">at home</span></h1>
-        <div class="lm-brand-sub">Recursos interactivos LM y EAV desde tu casa</div>
+        <div class="lm-brand-sub">Recursos interactivos LM y EAV desde tu casa <span style="opacity:.5;font-size:11px;">· v2026-06-15b</span></div>
       </div>
       <div class="lm-actions">
         <span id="courseIndicator" class="course-indicator" style="display:none"></span>
@@ -557,14 +581,30 @@
     <div class="gen-meta" id="genMeta"></div>
 
     <!-- DICTADO (dos pentagramas, ancho completo) -->
-    <div class="score-panel" id="dictScore">
-      <div id="barHL"></div>
-      <div id="countInOverlay"></div>
-      <div id="pistaHint"></div>
+    <div class="score-wrap">
+      <div class="score-panel" id="dictScore">
+        <div id="barHL"></div>
+        <div id="countInOverlay"></div>
+        <div id="pistaHint"></div>
+      </div>
+      <!-- Cartel grande cuando no hay dictado (overlay sobre el pentagrama) -->
+      <div id="emptyCta" class="empty-cta" style="display:none;">
+        <button class="empty-cta-btn" onclick="DSgen.newDictado()">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <circle cx="8" cy="8" r="1.6" fill="currentColor"/>
+            <circle cx="16" cy="8" r="1.6" fill="currentColor"/>
+            <circle cx="12" cy="12" r="1.6" fill="currentColor"/>
+            <circle cx="8" cy="16" r="1.6" fill="currentColor"/>
+            <circle cx="16" cy="16" r="1.6" fill="currentColor"/>
+          </svg>
+          <span class="ecta-txt"><b>GENERA</b> UN DICTADO</span>
+        </button>
+      </div>
     </div>
 
     <!-- barra de tempo -->
-    <div class="gen-controls">
+    <div class="gen-controls" id="genControls">
       <div class="tempo-ctl">
         <span class="tempo-lbl">Tempo</span>
         <button class="tempo-btn" onclick="DSgen.bumpBpm(-5)" title="Más lento">−</button>
@@ -576,7 +616,7 @@
 
     <!-- TARJETAS: escucha + acciones, TODO en una sola fila -->
     <p class="cards-title">Escucha y trabaja <span class="cards-hint">— sigue el orden: al pasar a una tarjeta, las anteriores se bloquean</span></p>
-    <div class="cards-row">
+    <div class="cards-row" id="cardsRow">
       <div id="seqList" class="cards-grid"></div>
       <div class="cards-spacer"></div>
       <div class="action-grid">
@@ -1388,6 +1428,9 @@ function pickRhythm(catalog, ts, rnd, opts){
     plan=tpl;
   }
 
+  // ARRANQUE DE FRASE: forzar el primer pulso a figura de pulso (negra / negra con puntillo).
+  if(opts.firstPulseIsPulse && plan.length){ plan[0]='pulse'; }
+
   // forzar célula concreta (4 semis) en un pulso interior
   let forced=null;
   if(forceCellId){ forced=pool.find(c=>c.id===forceCellId) || null; }
@@ -1803,6 +1846,9 @@ function generateDictado(active, opts){
       if(structPlan){ baseOpts.pulsePlan=structPlan; baseOpts.requireBasicPlusHigh=false; baseOpts.avoidPulseFig=false; baseOpts.combo=null; }
     }
     if(m===0 && ts==='6/8'){ baseOpts.startRhythm68=true; } // arranque variado en 6/8
+    // ARRANQUE DE FRASE (compases 1 y 5): el primer pulso es una figura de pulso (asentado).
+    // En 6/8 el primer pulso ya es negra con puntillo por startRhythm68; aquí cubrimos 2/4 y 3/4.
+    if((m===0 || m===4) && (ts==='2/4' || ts==='3/4')){ baseOpts.firstPulseIsPulse=true; }
 
     let r;
     if(structSyncopa){
@@ -2209,9 +2255,22 @@ function generateDictado(active, opts){
 
 
 
-  // ===== REGLA DE HIERRO FINAL: tras CUALQUIER semicorchea, la nota siguiente a 2ª (<=2 semis),
-  //       cruzando compases. Última autoridad, tras sensible/approachFinal. No mueve semis del grupo
-  //       (esas ya son conjuntas); ajusta la NOTA SIGUIENTE (o, si está locked, la última semi). =====
+  // ===== CENTRADO DE REGISTRO LA MENOR (desde 2º GE) =====
+  // Vivir en Do4–Do5; subir una octava las notas por debajo de Do4. Techo Mi5 (76).
+  // Se ejecuta ANTES de secondAfterSemi para que la regla "2ª tras semicorchea" se aplique después.
+  if(aMinorReg){
+    const flat=[]; measures.forEach((m,mi)=>m.notes.forEach((n,ni)=>{ if(!n.rest) flat.push({n,mi,ni}); }));
+    flat.forEach((o)=>{
+      const n=o.n;
+      if(n._lock) return;
+      // subir a la franja central toda nota por debajo de Do4 (sin excepciones de La3 suelto,
+      // que creaba saltos de 9ª con la nota aguda anterior). Techo Mi5.
+      if(n.midi < 60){ const up=n.midi+12; if(up<=76){ n.midi=up; n.k=midiToVexKey(up, useFlats, n.alt); } }
+      if(n.midi > 76){ const dn=n.midi-12; if(dn>=57){ n.midi=dn; n.k=midiToVexKey(dn, useFlats, n.alt); } }
+    });
+  }
+
+
   (function secondAfterSemi(){
     const sc = scale;
     function idxOf(midi){ let bi=0,bd=Infinity; sc.forEach((s,ii)=>{const dd=Math.abs(s.midi-midi);if(dd<bd){bd=dd;bi=ii;}}); return bi; }
@@ -2365,28 +2424,6 @@ function generateDictado(active, opts){
     measures.forEach(m=>{ m.notes.forEach(n=>{ if(!n.rest) delete n.alt; }); });
   }
 
-  // ===== CENTRADO DE REGISTRO LA MENOR (desde 2º GE) =====
-  // Vivir en Do4–Do5; subir una octava las notas por debajo de Do4, salvo un La3 puntual
-  // que sirva de remate de arpegio cerca del final. Techo Mi5 (76).
-  if(aMinorReg){
-    const flat=[]; measures.forEach((m,mi)=>m.notes.forEach((n,ni)=>{ if(!n.rest) flat.push({n,mi,ni}); }));
-    const total=flat.length;
-    flat.forEach((o,i)=>{
-      const n=o.n;
-      if(n._lock) return;
-      // permitir La3 (57) como remate sólo en el último 20% del dictado y si es nota del arpegio
-      const nearEnd = i >= Math.floor(total*0.8);
-      if(n.midi < 60){ // por debajo de Do4
-        const isA3remate = (n.midi===57 && nearEnd);
-        if(!isA3remate){
-          const up=n.midi+12;
-          if(up<=76){ n.midi=up; n.k=midiToVexKey(up, useFlats, n.alt); }
-        }
-      }
-      if(n.midi>76){ const dn=n.midi-12; if(dn>=57){ n.midi=dn; n.k=midiToVexKey(dn, useFlats, n.alt); } }
-    });
-  }
-
   // ===== LÍMITE DURO DE INTERVALO (última autoridad) =====
   // En cursos inferiores (maxLeap activo) ningún intervalo melódico supera la 5ª justa (7 semis).
   // Por defecto, la 8ª (12 semis). Recorre TODO el dictado, incluidos los saltos entre compases,
@@ -2406,17 +2443,40 @@ function generateDictado(active, opts){
       if(iv>7) return false;                  // más de 5ª: no
       return isArpNote(a) && isArpNote(b);     // 3ª (3-4), 4ª (5), 5ª (7) entre notas del arpegio
     }
-    const flat=[]; measures.forEach(m=>m.notes.forEach(n=>{ if(!n.rest) flat.push(n); }));
-    // coste de un intervalo respecto al criterio (0=perfecto): penaliza fuerte la 6ª y los saltos no-arpegio
+    const flat=[]; const afterSemi=[];
+    measures.forEach(m=>m.notes.forEach(n=>{ if(!n.rest) flat.push(n); }));
+    // marcar, para cada nota no-silencio, si la anterior (no silencio) era semicorchea
+    (function(){ let prevWas16=false; measures.forEach(m=>m.notes.forEach(n=>{ if(n.rest) return; afterSemi.push(prevWas16); prevWas16=(n.d==='16'); })); })();
+    // ¿intervalo melódico disonante/prohibido en cualquier curso?
+    //  - tritono (4ª aum / 5ª dism = 6 semitonos): PROHIBIDO siempre.
+    //  - 7ª (10 u 11 semitonos): PROHIBIDA siempre (salto antimusical).
+    function isBadInterval(iv){ return iv===6 || iv===10 || iv===11; }
+    // coste de un intervalo respecto al criterio (0=perfecto)
     function pairCost(x,y){
       const iv=Math.abs(x-y);
-      if(iv<=2) return 0;                         // 2ª: ideal
+      if(isBadInterval(iv)) return 300;             // tritono y 7ª: prohibidos en TODOS los cursos (prioridad absoluta)
+      if(iv>12) return 280;                          // mayor de 8ª: prohibido siempre
+      if(iv<=2) return 0;                            // 2ª: ideal
       if(arpLeapsOnly){
-        if(iv===8||iv===9) return 100;            // 6ª: PROHIBIDA (coste máximo)
-        if(iv>7) return 90;                       // >5ª
+        if(iv===8||iv===9) return 100;              // 6ª: PROHIBIDA (1º GE)
+        if(iv>7) return 90;                          // >5ª
         return (isArpNote(x)&&isArpNote(y))? 0 : 80; // salto de arpegio ok; si no, penaliza fuerte
       }
       return iv>capSemi? 60 : 0;
+    }
+    // coste de saltos ENCADENADOS: 3 notas seguidas (p,q,r) con dos saltos (≥3ª) en la misma
+    // dirección cuya amplitud total supere una 5ª (7 semis) -> antimusical (p.ej. Do-Mi-Si).
+    // El arpegio de 3 notas (Do-Mi-Sol = 7 semis) queda justo permitido.
+    function chainCost(p,q,r){
+      if(p==null||r==null) return 0;
+      const d1=q-p, d2=r-q;
+      if(Math.abs(d1)<3 || Math.abs(d2)<3) return 0;     // alguno es grado conjunto: ok
+      if((d1>0)!==(d2>0)) return 0;                       // cambian de dirección: ok (compensa)
+      const span=Math.abs(r-p);
+      if(span<=7) return 0;                               // dentro de 5ª (incluye arpegio Do-Mi-Sol): ok
+      // misma dirección y span > 5ª: sólo se permite si las 3 notas son del arpegio de tónica (cierre/arpegio)
+      if(isArpNote(p)&&isArpNote(q)&&isArpNote(r)) return 0;
+      return 85;
     }
     for(let pass=0; pass<16; pass++){
       let changed=false;
@@ -2424,17 +2484,27 @@ function generateDictado(active, opts){
         const cur=flat[i]; if(cur._lock) continue;
         const a = i>0? flat[i-1].midi : null;
         const b = i<flat.length-1? flat[i+1].midi : null;
+        const a2 = i>1? flat[i-2].midi : null;            // dos atrás (para cadenas)
+        const b2 = i<flat.length-2? flat[i+2].midi : null; // dos adelante
         const ci=idxOf(cur.midi);
-        const costNow = (a!=null?pairCost(a,cur.midi):0) + (b!=null?pairCost(cur.midi,b):0);
+        function totalCost(mid){
+          let c = (a!=null?pairCost(a,mid):0) + (b!=null?pairCost(mid,b):0);
+          c += chainCost(a2,a,mid) + chainCost(a,mid,b) + chainCost(mid,b,b2);
+          // REGLA "2ª tras semicorchea": si esta nota sigue a una semicorchea, debe estar a 2ª de la anterior.
+          if(afterSemi[i] && a!=null && Math.abs(mid-a)>2) c += 250;
+          // y si la SIGUIENTE nota sigue a semicorchea (esta es la semi previa), también debe quedar a 2ª.
+          if(i+1<flat.length && afterSemi[i+1] && b!=null && Math.abs(b-mid)>2) c += 250;
+          return c;
+        }
+        const costNow = totalCost(cur.midi);
         if(costNow===0) continue;
-        // buscar el índice cercano que minimice el coste combinado con ambos vecinos
+        // buscar el índice cercano que minimice el coste combinado
         let bestIdx=ci, bestCost=costNow;
-        for(let d=-4; d<=4; d++){
+        for(let d=-8; d<=8; d++){
           const ni=ci+d; if(d===0||!inR(ni)) continue;
           const m=scale[ni].midi;
-          // no crear repetición con vecinos
-          if(m===a || m===b) continue;
-          const c=(a!=null?pairCost(a,m):0) + (b!=null?pairCost(m,b):0) + Math.abs(d)*0.1;
+          if(m===a || m===b) continue;                    // no crear repetición con vecinos
+          const c=totalCost(m) + Math.abs(d)*0.1;
           if(c<bestCost){ bestCost=c; bestIdx=ni; }
         }
         if(bestIdx!==ci){ setN(cur, bestIdx); changed=true; }
@@ -2690,6 +2760,13 @@ const MEL_LAWS = [
   { id:'leap_max8', group:'Intervalos y saltos', structural:true, enabled:true,
     title:'Ningún intervalo mayor que la 8ª',
     text:'No hay saltos superiores a una octava.' },
+  { id:'leap_no_tritone', group:'Intervalos y saltos', structural:true, enabled:true,
+    title:'Prohibida la 4ª aumentada y la 7ª',
+    text:'Nunca aparece un tritono (4ª aumentada / 5ª disminuida) ni saltos de 7ª, en ningún curso, tampoco entre compases. Se corrige siempre.' },
+  { id:'leap_chain_limit', group:'Intervalos y saltos', structural:true, enabled:true,
+    title:'Saltos encadenados controlados entre compases',
+    text:'No se encadenan dos saltos en la misma dirección que sumen más de una 5ª, salvo que las tres notas formen el arpegio de la tónica (cierre). Se comprueba en todo el dictado, incluidos los cambios de compás.' },
+
   { id:'leap_arpeggio4_exception', group:'Intervalos y saltos', structural:false, enabled:true,
     title:'Excepción: arpegio de 4 en el compás final',
     text:'Solo el último compás puede acabar con un arpegio de 4 notas (cuando el cierre es un arpegio o tresillo de tónica).' },
@@ -3440,9 +3517,9 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     const dh=document.getElementById('difficultyHint'); if(dh) dh.style.display='block';
     // empezar a editar, por defecto, el mismo curso activo
     editCourse(id);
-    // IMPORTANTE: tras fijar DS_COURSE_CFG y DS_LEVEL, regenerar SIEMPRE con la config del curso.
-    // (activeCatalog() leerá DS_COURSE_CFG, así que el dictado respeta tonalidades/compases/células del curso.)
-    try{ if(window.DSgen) window.DSgen.newDictado(); }catch(e){}
+    // NO generamos automáticamente: mostramos el botón grande "Genera un dictado".
+    // El alumno pulsa cuando esté listo; hasta entonces los reproductores están bloqueados.
+    try{ if(window.DSgen){ window.DSgen.clearDictado(); } }catch(e){}
   }
 
   // carga un curso en el EDITOR (no cambia el curso activo de generación)
@@ -3715,19 +3792,20 @@ const DSaudio = (function(){
 /* ========== GENERADOR / REPRODUCCIÓN ========== */
 const DSgen = (function(){
   let userBpmNegra=null, userBpmPunt=null; // override del usuario
-  function defaultBpm(){ return DICTADO.pulseFig==='qd' ? 45 : 55; }
+  function isPunt(){ return !!(DICTADO && DICTADO.pulseFig==='qd'); }
+  function defaultBpm(){ return isPunt() ? 45 : 55; }
   function bpm(){
-    if(DICTADO.pulseFig==='qd') return userBpmPunt!=null?userBpmPunt:45;
+    if(isPunt()) return userBpmPunt!=null?userBpmPunt:45;
     return userBpmNegra!=null?userBpmNegra:55;
   }
   function setBpm(v){
     v=Math.max(30, Math.min(120, parseInt(v,10)||defaultBpm()));
-    if(DICTADO.pulseFig==='qd') userBpmPunt=v; else userBpmNegra=v;
+    if(isPunt()) userBpmPunt=v; else userBpmNegra=v;
     redraw();
     const out=document.getElementById('bpmOut'); if(out) out.textContent=v;
   }
   function beatSec(){ return 60/bpm(); }                 // segundos por PULSO
-  function negraSec(){ return beatSec()/(DICTADO.pulseFig==='qd'?1.5:1); } // segundos por NEGRA
+  function negraSec(){ return beatSec()/(isPunt()?1.5:1); } // segundos por NEGRA
 
   let revealedPulses=new Set();   // pulsos revelados ENTEROS (solución/avance)
   let pistaRit=null;   // índice de pulso con pista rítmica (plicas/corchetes, altura neutra)
@@ -3758,16 +3836,36 @@ const DSgen = (function(){
     const sl=document.getElementById('bpmSlider'); const out=document.getElementById('bpmOut');
     if(sl){ sl.value=bpm(); } if(out){ out.textContent=bpm(); }
   }
+  function setPlayersEnabled(on){
+    ['cardsRow','genControls'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.classList.toggle('players-locked', !on);
+    });
+  }
+  function showEmptyCta(show){
+    const cta=document.getElementById('emptyCta');
+    const host=document.getElementById('dictScore');
+    if(cta) cta.style.display = show ? 'flex' : 'none';
+    if(host) host.style.visibility = show ? 'hidden' : 'visible';
+    setPlayersEnabled(!show);
+  }
   function redraw(){
     const host=document.getElementById('dictScore');
     if(!host) return;
-    syncTempoUI();
     [...host.querySelectorAll('svg')].forEach(s=>s.remove());
+    const cta=document.getElementById('emptyCta');
     if(!DICTADO){
-      // aún no se ha elegido curso: pentagrama en blanco, sin notas
-      const gm=document.getElementById('genMeta'); if(gm) gm.textContent='Elige un curso para empezar';
+      // sin dictado: ocultar el pentagrama y mostrar la tarjeta con el botón
+      const gm=document.getElementById('genMeta'); if(gm) gm.textContent='';
+      if(cta) cta.style.display='flex';
+      host.style.display='none';
+      setPlayersEnabled(false);
       return;
     }
+    syncTempoUI();
+    if(cta) cta.style.display='none';
+    host.style.display='flex';
+    setPlayersEnabled(true);
     document.getElementById('genMeta').textContent =
       'Tonalidad: '+(keyRevealed?DICTADO.name:'oculta')+' · '+(tsRevealed?DICTADO.ts:'compás oculto')+' · 2 frases de 4 compases · ♩= '+bpm();
     const W=Math.max(320,(host.clientWidth||760)-28);
@@ -4371,6 +4469,19 @@ const DSgen = (function(){
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
     SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
     renderSeq(); redraw();
+    // fundido de aparición del pentagrama
+    const host=document.getElementById('dictScore');
+    if(host && DICTADO){ host.classList.remove('fade-in'); void host.offsetWidth; host.classList.add('fade-in'); }
+  }
+
+  function clearDictado(){
+    if(playing) stopPlayback();
+    DICTADO=null;
+    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; keyRevealed=false; tsRevealed=false;
+    disablePistaPicking();
+    const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
+    SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
+    renderSeq(); redraw();
   }
 
   function bumpBpm(delta){
@@ -4378,7 +4489,7 @@ const DSgen = (function(){
     setBpm(cur+delta);
   }
 
-  return { redraw, renderSeq, onSeq, pistaMode, solucion, closeSolModal, revealSolucion, newDictado, askRevealKey, confirmRevealKey, cancelRevealKey, askRevealTs, confirmRevealTs, cancelRevealTs, stopPlayback, setBpm, bumpBpm };
+  return { redraw, renderSeq, onSeq, pistaMode, solucion, closeSolModal, revealSolucion, newDictado, clearDictado, askRevealKey, confirmRevealKey, cancelRevealKey, askRevealTs, confirmRevealTs, cancelRevealTs, stopPlayback, setBpm, bumpBpm };
 })();
 
 window.addEventListener('load', ()=>{
