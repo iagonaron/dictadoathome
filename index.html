@@ -1673,6 +1673,46 @@ function generateDictado(active, opts){
     }
   }
 
+  // === SALTO PREPARADO DE 4ª/5ª (y 6ª en 4º GE) ===
+  // Del pulso 2 del compás 2 ó 6 (figura de pulso) al pulso 1 del compás siguiente (3 ó 7).
+  // Probabilidad por dictado: 3º GE 30%, 4º GE 80%. Máximo 1. Fuera de aquí (y del cierre 7→8),
+  // ningún salto supera la 3ª. La nota de destino compensa por grado conjunto en sentido contrario.
+  // Cuando hay salto, el compás de destino (3/7) INVIERTE su dificultad: pulso1 fácil (recibe el salto),
+  // el nivel alto se desplaza al pulso siguiente.
+  const prepLeap = !!LV.preparedLeap;             // activa la regla (3º/4º GE)
+  const prepLeapProb = LV.preparedLeapProb || 0;  // 0.30 (3º) / 0.80 (4º)
+  const prepLeapAllow6 = !!LV.preparedLeapAllow6; // 6ª permitida en el salto (4º GE)
+  let leapFromBar = -1;                            // compás origen del salto (1 ó 5) => destino +1
+  if(prepLeap && (ts==='2/4'||ts==='3/4') && rnd()<prepLeapProb){
+    // elegir uno de los dos cruces: 2→3 (origen idx1) ó 6→7 (origen idx5)
+    leapFromBar = (rnd()<0.5)? 1 : 5;
+    // no coincidir con la síncopa en el mismo compás de origen
+    if(syncopaBar===leapFromBar || syncopaBar===leapFromBar+1) leapFromBar = (leapFromBar===1)?5:1;
+    if(syncopaBar===leapFromBar || syncopaBar===leapFromBar+1) leapFromBar = -1; // si sigue chocando, no hay salto
+  }
+  const leapToBar = leapFromBar>=0 ? leapFromBar+1 : -1;  // compás de destino (2→3 ó 6→7)
+
+  // === SALTO LIBRE (solo 4º GE = preparedLeapAllow6): 4ª/5ª (nunca 6ª), máx 1 por dictado, en el
+  // SISTEMA OPUESTO al preparado, intervalo distinto al preparado, evitando el compás 7 (idx6) y el
+  // último, que resuelve por 2ª en contrario y sale de figura de corchea o mayor.
+  // GARANTÍA: si no hay preparado, el libre es OBLIGATORIO (todo dictado de 4º GE tiene ≥1 salto amplio).
+  const freeLeapOn = !!LV.preparedLeapAllow6;   // distingue 4º GE de 3º GE
+  let freeLeapSystem = -1;                       // 0 = sistema1 (compases 0-3), 1 = sistema2 (4-7)
+  let freeLeapForced = false;
+  if(freeLeapOn){
+    if(leapFromBar>=0){
+      // preparado presente: el libre va al sistema OPUESTO
+      const prepSystem = (leapFromBar<4)?0:1;
+      freeLeapSystem = prepSystem===0?1:0;
+      // probabilidad propia del libre cuando ya hay preparado (no obligatorio): 65%
+      if(rnd()>=0.65) freeLeapSystem=-1;
+    } else {
+      // no hay preparado: el libre es OBLIGATORIO, en cualquier sistema
+      freeLeapForced = true;
+      freeLeapSystem = (rnd()<0.5)?0:1;
+    }
+  }
+
   // === PLANIFICACIÓN DE NIVELES POR COMPÁS (reglas de exclusión) ===
   // Compases normales: 0,1,2 (sistema1, c4 es cierre) y 4,5,6 (sistema2, c8 es final).
   // Reglas: por SISTEMA, máx 1 puntual. Ocasional: no en compases adyacentes (ventana ±1).
@@ -1796,7 +1836,24 @@ function generateDictado(active, opts){
       // acorde de V: fundamental V (=7 semis), su 3ª = sensible (11), su 5ª = II (2 semis -> +14).
       // preferimos la fundamental de la dominante (la quinta del tono) para que suene a semicadencia.
       const domTones=[7,2]; // V grado y II (existen en la escala); el V da la semicadencia
-      const target=nearestChordTone(scale,tonicPc,domTones,cursorMidi);
+      let target=nearestChordTone(scale,tonicPc,domTones,cursorMidi);
+      // evitar que la entrada a la semicadencia sea un tritono/7ª con la última nota del compás anterior:
+      // si lo es, buscar otra nota de dominante (a octava distinta) que no produzca disonancia.
+      if(cursorMidi!=null){
+        const ivT=Math.abs(target-cursorMidi);
+        if(ivT===6||ivT===10||ivT===11||ivT>12){
+          const domPC=new Set(domTones.map(s=>((tonicPc+s)%12)));
+          let best=target, bestScore=Infinity;
+          scale.forEach(s=>{
+            if(!domPC.has(((s.midi%12)+12)%12)) return;
+            if(s.midi<57||s.midi>76) return;
+            const iv=Math.abs(s.midi-cursorMidi);
+            if(iv===6||iv===10||iv===11||iv>12) return;     // sigue siendo disonante: descartar
+            if(iv<bestScore){ bestScore=iv; best=s.midi; }
+          });
+          target=best;
+        }
+      }
       if(ts==='2/4'){ notes=[{midi:target,d:'q'},{rest:true,d:'qr'}]; }
       else if(ts==='3/4'){ notes=[{midi:target,d:'q'},{rest:true,d:'hr'}]; } // negra + silencio de blanca
       else if(ts==='6/8'){ notes=[{midi:target,d:'qd'},{rest:true,d:'qdr'}]; } // un pulso nota, otro silencio
@@ -1837,9 +1894,18 @@ function generateDictado(active, opts){
         structSyncopa=true; // este compás lleva la síncopa
       } else if(is24){
         if(isBar26) structPlan=['oca','pulse'];      // c2/c6: oca/pun + figura de pulso
-        else if(isBar37) structPlan=['pun','rec'];   // c3/c7: PUNTUAL + recurrente (más exigente)
+        else if(isBar37){
+          // c3/c7: normalmente pulso1 PUNTUAL + pulso2 recurrente.
+          // Si este compás RECIBE el salto: pulso1 RECURRENTE (no figura de pulso, para no acumular
+          // dos figuras de pulso seguidas) y el nivel alto se desplaza al pulso2.
+          structPlan = (m===leapToBar) ? ['rec','pun'] : ['pun','rec'];
+        }
       } else if(is34){
-        if(isBar26||isBar37) structPlan=['oca','pulse','rec']; // c2/3/6/7: oca/pun + figura pulso + recurrente
+        if(isBar26||isBar37){
+          // c2/3/6/7: oca/pun + figura de pulso + recurrente.
+          // Si recibe el salto, el pulso1 pasa a figura de pulso y el nivel alto al pulso2.
+          structPlan = (m===leapToBar) ? ['pulse','oca','rec'] : ['oca','pulse','rec'];
+        }
       } else if(is68){
         if(isBar26) structPlan=['oca','pulse'];      // 6/8 c2/c6: oca/pun + figura de pulso
       }
@@ -1895,8 +1961,10 @@ function generateDictado(active, opts){
       const prevNotes=measures[measures.length-1].notes;
       for(let z=prevNotes.length-1; z>=0; z--){ if(!prevNotes[z].rest){ prevBarEndedInSemi=(prevNotes[z].d==='16'); break; } }
     }
-    // melodía
-    notes=assignMelody(figs, scale, m===0?startTonic:cursorMidi, rnd, prevBarEndedInSemi, regWindow, (maxLeap?4:7), (arpLeapsOnly?{arpPC:[0,(k.mode==='minor'?3:4),7].map(s=>((tonicPc+s)%12))}:null));
+    // melodía. Con salto preparado activo (3º/4º GE), la melodía base se limita a 3ª (2 grados):
+    // los únicos saltos mayores serán el salto preparado (añadido después) y el cierre (compás aparte).
+    const maxStepGrados = prepLeap ? 2 : (maxLeap?4:7);
+    notes=assignMelody(figs, scale, m===0?startTonic:cursorMidi, rnd, prevBarEndedInSemi, regWindow, maxStepGrados, (arpLeapsOnly?{arpPC:[0,(k.mode==='minor'?3:4),7].map(s=>((tonicPc+s)%12))}:null));
     // primer compás del dictado: forzar primera nota = tónica
     if(m===0){ const fr=notes.find(n=>!n.rest); if(fr){ fr.midi=startTonic; fr.deg=1; } }
     // COMPASES 1 y 5 (presentación): melodía muy sencilla -> escala (grado conjunto) o arpegio
@@ -2424,8 +2492,144 @@ function generateDictado(active, opts){
     measures.forEach(m=>{ m.notes.forEach(n=>{ if(!n.rest) delete n.alt; }); });
   }
 
-  // ===== LÍMITE DURO DE INTERVALO (última autoridad) =====
-  // En cursos inferiores (maxLeap activo) ningún intervalo melódico supera la 5ª justa (7 semis).
+  // === SALTO PREPARADO DE 4ª/5ª (6ª en 4º GE): pulso2 del compás origen → pulso1 del destino ===
+  // Colocación robusta: valida en el momento que ni el salto, ni la nota previa al origen, ni la
+  // compensación crean tritono/7ª/>8ª. Si ningún candidato es limpio, NO se coloca el salto
+  // (mejor un dictado sin salto que uno con un intervalo prohibido). No deja correctores posteriores.
+  let prepLeapSemis = 0;   // intervalo (semitonos) del salto preparado realmente colocado (0 = no hubo)
+  if(leapToBar>=0 && measures[leapFromBar] && measures[leapToBar]){
+    const sc=scale;
+    function idxOf(midi){ let bi=0,bd=Infinity; sc.forEach((s,ii)=>{const dd=Math.abs(s.midi-midi);if(dd<bd){bd=dd;bi=ii;}}); return bi; }
+    function inR(idx){ return idx>=0 && idx<sc.length && sc[idx].midi>=57 && sc[idx].midi<=76; }
+    function isBad(iv){ return iv===6||iv===10||iv===11||iv>12; } // tritono / 7ª / >8ª
+    const origin = measures[leapFromBar].notes.filter(n=>!n.rest);
+    const dest   = measures[leapToBar].notes.filter(n=>!n.rest);
+    if(origin.length>=1 && dest.length>=1){
+      const a = origin[origin.length-1];          // última nota del origen (pulso 2 = figura de pulso)
+      const aPrev = origin.length>=2 ? origin[origin.length-2] : null; // nota previa (para no romperla)
+      const b = dest[0];                           // primera nota del destino
+      const semisAllowed = prepLeapAllow6 ? [5,7,8,9] : [5,7]; // 4ª=5, 5ª=7, (6ª=8/9 en 4º GE)
+      if(!a._lock && !b._lock){
+        // candidatos de destino: notas de la escala en registro a intervalo permitido de 'a',
+        // que NO formen tritono/7ª con aPrev (el salto sale de 'a', pero aPrev→a debe seguir limpio: ya lo está).
+        const cands=[];
+        sc.forEach((s,ni)=>{
+          if(s.midi<57||s.midi>76) return;
+          const iv=Math.abs(s.midi-a.midi);
+          if(!semisAllowed.includes(iv)) return;
+          cands.push({ni, midi:s.midi, dir:(s.midi>a.midi?1:-1)});
+        });
+        // barajar candidatos
+        for(let i=cands.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[cands[i],cands[j]]=[cands[j],cands[i]];}
+        // probar cada candidato: simular compensación y comprobar que TODO el destino queda limpio
+        let applied=false;
+        for(const c of cands){
+          if(applied) break;
+          // construir la compensación tentativa (grado conjunto en sentido contrario)
+          const compDir = c.dir>0 ? -1 : 1;
+          const tentative = new Array(dest.length).fill(null);
+          tentative[0]=c.ni;
+          let prevIdx=c.ni, okComp=true;
+          for(let z=1; z<dest.length; z++){
+            if(dest[z]._lock){ prevIdx=idxOf(dest[z].midi); tentative[z]=prevIdx; continue; }
+            let ni=prevIdx+compDir;
+            if(!inR(ni)) ni=prevIdx-compDir;
+            if(!inR(ni)){ okComp=false; break; }
+            tentative[z]=ni; prevIdx=ni;
+          }
+          if(!okComp) continue;
+          // validar TODOS los intervalos internos del destino y el salto a→b
+          let clean=true;
+          if(isBad(Math.abs(sc[c.ni].midi - a.midi))) clean=false;   // salto en sí (no debería, pero por seguridad)
+          for(let z=1; z<dest.length && clean; z++){
+            const iv=Math.abs(sc[tentative[z]].midi - sc[tentative[z-1]].midi);
+            if(isBad(iv) || iv>4) clean=false;   // compensación: grado conjunto/3ª, nunca disonante ni salto
+          }
+          if(!clean) continue;
+          // aplicar
+          for(let z=0; z<dest.length; z++){
+            if(dest[z]._lock) continue;
+            dest[z].midi=sc[tentative[z]].midi; dest[z].k=midiToVexKey(sc[tentative[z]].midi, useFlats, dest[z].alt);
+          }
+          a._lock=true; b._lock=true;
+          a._leapLock=true; b._leapLock=true;   // etiqueta específica del salto preparado (exenta del tope libre)
+          prepLeapSemis = Math.abs(sc[c.ni].midi - a.midi);  // intervalo realmente usado (5,7,8 ó 9)
+          applied=true;
+        }
+      }
+    }
+  }
+
+  // === SALTO LIBRE (4º GE): 4ª/5ª en el sistema indicado, intervalo distinto al preparado,
+  // entre figuras de corchea o mayor, que resuelve por 2ª en contrario, evitando compás 7 y el último. ===
+  if(freeLeapOn && (freeLeapSystem>=0 || freeLeapForced)){
+    const sc=scale;
+    function inR(idx){ return idx>=0 && idx<sc.length && sc[idx].midi>=57 && sc[idx].midi<=76; }
+    function bad(iv){ return iv===6||iv===10||iv===11||iv>12; }
+    // intervalo del libre: distinto al preparado (4ª↔5ª). Si el preparado fue 6ª o no hubo, al azar.
+    let freeSemis;
+    if(prepLeapSemis===5) freeSemis=7;
+    else if(prepLeapSemis===7) freeSemis=5;
+    else freeSemis=(rnd()<0.5)?5:7;
+    const sysOrder = freeLeapForced ? [freeLeapSystem, freeLeapSystem===0?1:0] : [freeLeapSystem];
+    let placed=false;
+    for(const sys of sysOrder){
+      if(placed) break;
+      const bars = sys===0 ? [0,1] : [4,5];   // evita compás 3 (limita con semicadencia), compás 7 y último
+      const order=[...bars]; for(let i=order.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
+      for(const mi of order){
+        if(placed) break;
+        const mm=measures[mi]; if(!mm) continue;
+        const notes=mm.notes.map((n)=>n).filter(n=>!n.rest);
+        for(let p=0;p<notes.length-1 && !placed;p++){
+          const A=notes[p], B=notes[p+1];
+          if(A._lock||B._lock||A._leapLock||B._leapLock) continue;
+          if(A.d==='16'||B.d==='16') continue;             // entre corcheas o mayores
+          const prevA = p>0? notes[p-1].midi : null;
+          if(prevA!=null && bad(Math.abs(A.midi-prevA))) continue;
+          // si A es la primera nota del compás, su previa está en el compás anterior: validar también
+          let prevAcross=null;
+          if(p===0 && mi>0){ const pm=measures[mi-1].notes.filter(n=>!n.rest); if(pm.length) prevAcross=pm[pm.length-1].midi; }
+          if(prevAcross!=null && bad(Math.abs(A.midi-prevAcross))) continue;
+          const cand=[];
+          sc.forEach((s,ni)=>{ if(s.midi<57||s.midi>76) return; if(Math.abs(s.midi-A.midi)===freeSemis) cand.push({ni,midi:s.midi,dir:(s.midi>A.midi?1:-1)}); });
+          for(let i=cand.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[cand[i],cand[j]]=[cand[j],cand[i]];}
+          for(const c of cand){
+            if(placed) break;
+            const compDir = c.dir>0? -1 : 1;
+            const tail = notes.slice(p+1);                 // B y siguientes (a compensar)
+            if(tail.length<2) continue;                    // hace falta ≥1 nota tras B para resolver
+            const tent=new Array(tail.length).fill(null); tent[0]=c.ni; let prevIdx=c.ni, ok=true;
+            for(let z=1;z<tail.length;z++){
+              if(tail[z]._lock||tail[z]._leapLock){ ok=false; break; }
+              let ni=prevIdx+compDir; if(!inR(ni)) ni=prevIdx-compDir; if(!inR(ni)){ok=false;break;}
+              tent[z]=ni; prevIdx=ni;
+            }
+            if(!ok) continue;
+            let clean=true;
+            for(let z=1;z<tail.length && clean;z++){ const iv=Math.abs(sc[tent[z]].midi - sc[tent[z-1]].midi); if(iv>2 || bad(iv)) clean=false; }
+            if(!clean) continue;
+            // EMPALME con el compás siguiente: la última nota de la cola no debe formar disonancia
+            // ni salto >3ª con la primera nota (no-silencio) del compás siguiente.
+            const nextM = measures[mi+1];
+            if(nextM){
+              const nextFirst = nextM.notes.find(n=>!n.rest);
+              if(nextFirst){
+                const ivJoin = Math.abs(nextFirst.midi - sc[tent[tail.length-1]].midi);
+                if(bad(ivJoin) || ivJoin>4) continue;   // empalme malo: descartar este candidato
+              }
+            }
+            // EMPALME hacia atrás: A con su nota previa ya validado arriba (prevA). Aplicar.
+            for(let z=0;z<tail.length;z++){ tail[z].midi=sc[tent[z]].midi; tail[z].k=midiToVexKey(sc[tent[z]].midi, useFlats, tail[z].alt); }
+            // sólo el salto en sí (A→B) queda exento del tope; la cola NO se bloquea.
+            A._lock=true; B._lock=true; A._leapLock=true; B._leapLock=true;
+            placed=true;
+          }
+        }
+      }
+    }
+  }
+
   // Por defecto, la 8ª (12 semis). Recorre TODO el dictado, incluidos los saltos entre compases,
   // y acerca la nota que rompe el límite (sin tocar las locked ni crear repetición).
   (function capIntervals(){
@@ -2443,8 +2647,9 @@ function generateDictado(active, opts){
       if(iv>7) return false;                  // más de 5ª: no
       return isArpNote(a) && isArpNote(b);     // 3ª (3-4), 4ª (5), 5ª (7) entre notas del arpegio
     }
-    const flat=[]; const afterSemi=[];
-    measures.forEach(m=>m.notes.forEach(n=>{ if(!n.rest) flat.push(n); }));
+    const flat=[]; const afterSemi=[]; const exempt=[];
+    const lastBarIdx = measures.length-1;
+    measures.forEach((m,mi)=>m.notes.forEach(n=>{ if(!n.rest){ flat.push(n); exempt.push(!!n._leapLock || mi===lastBarIdx); } }));
     // marcar, para cada nota no-silencio, si la anterior (no silencio) era semicorchea
     (function(){ let prevWas16=false; measures.forEach(m=>m.notes.forEach(n=>{ if(n.rest) return; afterSemi.push(prevWas16); prevWas16=(n.d==='16'); })); })();
     // ¿intervalo melódico disonante/prohibido en cualquier curso?
@@ -2452,7 +2657,11 @@ function generateDictado(active, opts){
     //  - 7ª (10 u 11 semitonos): PROHIBIDA siempre (salto antimusical).
     function isBadInterval(iv){ return iv===6 || iv===10 || iv===11; }
     // coste de un intervalo respecto al criterio (0=perfecto)
-    function pairCost(x,y){
+    // freeCapSemi: tope para saltos LIBRES (entre notas no fijadas). Con salto preparado activo,
+    // el salto libre por defecto es 3ª (4 semis); el salto preparado y el cierre usan notas locked,
+    // que quedan exentas de este tope.
+    const freeCapSemi = prepLeap ? 4 : capSemi;
+    function pairCost(x,y,xLock,yLock){
       const iv=Math.abs(x-y);
       if(isBadInterval(iv)) return 300;             // tritono y 7ª: prohibidos en TODOS los cursos (prioridad absoluta)
       if(iv>12) return 280;                          // mayor de 8ª: prohibido siempre
@@ -2462,7 +2671,9 @@ function generateDictado(active, opts){
         if(iv>7) return 90;                          // >5ª
         return (isArpNote(x)&&isArpNote(y))? 0 : 80; // salto de arpegio ok; si no, penaliza fuerte
       }
-      return iv>capSemi? 60 : 0;
+      // si uno de los extremos es una nota fijada (salto preparado / cierre), no aplicar el tope libre
+      if(xLock || yLock) return iv>12? 280 : 0;
+      return iv>freeCapSemi? 120 : 0;
     }
     // coste de saltos ENCADENADOS: 3 notas seguidas (p,q,r) con dos saltos (≥3ª) en la misma
     // dirección cuya amplitud total supere una 5ª (7 semis) -> antimusical (p.ej. Do-Mi-Si).
@@ -2484,11 +2695,14 @@ function generateDictado(active, opts){
         const cur=flat[i]; if(cur._lock) continue;
         const a = i>0? flat[i-1].midi : null;
         const b = i<flat.length-1? flat[i+1].midi : null;
+        const aLock = i>0? exempt[i-1] : false;
+        const bLock = i<flat.length-1? exempt[i+1] : false;
+        const curExempt = exempt[i];
         const a2 = i>1? flat[i-2].midi : null;            // dos atrás (para cadenas)
         const b2 = i<flat.length-2? flat[i+2].midi : null; // dos adelante
         const ci=idxOf(cur.midi);
         function totalCost(mid){
-          let c = (a!=null?pairCost(a,mid):0) + (b!=null?pairCost(mid,b):0);
+          let c = (a!=null?pairCost(a,mid,aLock,curExempt):0) + (b!=null?pairCost(mid,b,curExempt,bLock):0);
           c += chainCost(a2,a,mid) + chainCost(a,mid,b) + chainCost(mid,b,b2);
           // REGLA "2ª tras semicorchea": si esta nota sigue a una semicorchea, debe estar a 2ª de la anterior.
           if(afterSemi[i] && a!=null && Math.abs(mid-a)>2) c += 250;
@@ -2541,6 +2755,35 @@ function generateDictado(active, opts){
       }
       if(!changed) break;
     }
+  })();
+
+  // === ENTRADA A LA SEMICADENCIA: si la última nota del compás 3 (idx 2) forma tritono/7ª con la
+  //     dominante del compás 4 (idx 3, locked), reubicar esa última nota a la más cercana que evite
+  //     la disonancia (entrar a la semicadencia es contexto especial; se permite el salto resultante). ===
+  (function fixSemicadenceApproach(){
+    const m3=measures[2], m4=measures[3];
+    if(!m3||!m4) return;
+    const n3=m3.notes.filter(n=>!n.rest); const n4=m4.notes.filter(n=>!n.rest);
+    if(!n3.length||!n4.length) return;
+    const A=n3[n3.length-1], B=n4[0];
+    if(A._lock||A._leapLock) return;            // si está fijada por un salto, no tocar
+    const iv=Math.abs(A.midi-B.midi);
+    if(!(iv===6||iv===10||iv===11)) return;     // sólo si hay disonancia
+    const prev = n3.length>=2 ? n3[n3.length-2].midi : null;
+    const prevD = n3.length>=2 ? n3[n3.length-2].d : null;
+    const aFollowsSemi = (prevD==='16');   // A sigue a una semicorchea: debe quedar a 2ª de la previa
+    function bad(x){ return x===6||x===10||x===11||x>12; }
+    // buscar en la escala la nota más cercana a A que NO sea disonante con B ni con la previa
+    let best=null, bestD=Infinity;
+    scale.forEach(s=>{
+      if(s.midi<57||s.midi>76) return;
+      if(bad(Math.abs(s.midi-B.midi))) return;          // no disonante con la dominante
+      if(prev!=null && bad(Math.abs(s.midi-prev))) return; // ni con la nota previa
+      if(aFollowsSemi && prev!=null && Math.abs(s.midi-prev)>2) return; // si sigue a semicorchea, 2ª
+      const dd=Math.abs(s.midi-A.midi);
+      if(dd>0 && dd<bestD){ bestD=dd; best=s.midi; }
+    });
+    if(best!=null){ A.midi=best; A.k=midiToVexKey(best, useFlats, A.alt); }
   })();
 
   return {
@@ -3497,11 +3740,7 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
         semiPhraseRest:true          // en su lugar: compases 2 y 6 = cierre de semifrase (negra+silencio o blanca)
       });
     }
-    // REGLAS RÍTMICAS ESTRUCTURALES (compases 2/3/6/7 y síncopas): 3º y 4º GE.
-    if(id==='ge3' || id==='ge4'){
-      lvl.barStructRules = true;
-      lvl.bar25rule = false; // las reglas estructurales sustituyen a la antigua bar25
-    }
+
     // REGISTRO LA MENOR centrado en Do4–Do5 (techo Mi5, La3 sólo de remate): desde 2º GE en adelante.
     if(id==='ge2' || id==='ge3' || id==='ge4'){
       lvl.aMinorReg = true;
