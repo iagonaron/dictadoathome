@@ -6,6 +6,7 @@
 <title>Dictado Simulator · CMUS</title>
 <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.3/build/cjs/vexflow.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
     /* paleta de marca "LM at home" */
@@ -74,7 +75,7 @@
   @media (max-width:1100px){ .gen-layout{ grid-template-columns:1fr; } }
   .score-panel{ background:var(--paper); border-radius:16px; padding:22px 18px; min-width:0; overflow:hidden; box-shadow:0 10px 40px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; min-height:276px; box-sizing:border-box; position:relative; transition:opacity .5s ease; }
   .score-panel svg{ display:block; margin:0 auto; max-width:100%; height:auto; }
-  #barHL{position:absolute; pointer-events:none; background:var(--accent-soft); border-radius:6px; display:none; transition:left .04s linear, width .04s linear; z-index:2;}
+  #barHL{display:none !important;}  /* sustituido por líneas divisorias dibujadas en el SVG */
   #countInOverlay{position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; z-index:3;
     font-size:110px; font-weight:800; color:rgba(91,157,255,0.65); text-shadow:0 2px 16px rgba(0,0,0,0.15);}
 
@@ -124,6 +125,58 @@
   .modal p{color:var(--ink); font-size:14px; line-height:1.6; margin:0 0 12px;}
   .modal p.muted{color:var(--muted);}
   .modal-row{display:flex; gap:10px; justify-content:flex-end; margin-top:18px;}
+  /* ===== Quiz de tonalidad / compás con ruedas tipo selector móvil ===== */
+  .modal-quiz{ max-width:520px; }
+  .manage-modal{ max-width:90vw; width:1100px; }
+  .manage-sub{ font-size:13px; color:var(--muted); margin-bottom:14px; }
+  .manage-list{ max-height:72vh; overflow-y:auto; display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px; }
+  .manage-item{ display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:12px;
+    background:rgba(255,255,255,.03); border:1px solid var(--line); }
+  .manage-item .mi-head{ display:flex; align-items:center; gap:12px; }
+  .manage-item .mi-num{ font-weight:800; color:var(--pista); min-width:34px; font-size:15px; }
+  .manage-item .mi-info{ flex:1; min-width:0; font-size:14px; color:var(--ink); line-height:1.4; }
+  .manage-item .mi-info small{ color:var(--muted); }
+  .manage-item .mi-thumb{ background:#fff; border-radius:8px; padding:6px 4px; overflow:hidden; min-height:60px; }
+  .manage-item .mi-thumb svg{ display:block; margin:0 auto; max-width:100%; height:auto; }
+  .manage-item .mi-del{ background:rgba(251,113,133,.12); border:1px solid rgba(251,113,133,.35); color:#fb7185;
+    border-radius:8px; padding:6px 12px; font-size:12.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .manage-item .mi-del:hover{ background:rgba(251,113,133,.25); color:#fff; }
+  .manage-item .mi-del:disabled{ opacity:.5; cursor:default; }
+  .manage-item .mi-edit{ background:rgba(91,157,255,.12); border:1px solid rgba(91,157,255,.35); color:#5b9dff;
+    border-radius:8px; padding:6px 12px; font-size:12.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .manage-item .mi-edit:hover{ background:rgba(91,157,255,.25); color:#fff; }
+  .manage-empty{ text-align:center; color:var(--muted); padding:20px; font-size:13px; }
+  .quiz-warn{ font-size:13px; color:var(--muted); line-height:1.5; }
+  .quiz-warn strong{ color:#fbcfe8; }
+  .wheel-row{ display:flex; gap:24px; justify-content:center; margin:18px 0 4px; }
+  .wheel-block{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .wheel-label{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--muted2); }
+  .wheel-avail{ font-size:11px; color:var(--muted2); margin-top:2px; text-align:center; max-width:160px; }
+  .wheel{ position:relative; width:170px; height:132px; overflow:hidden; border-radius:12px;
+    background:linear-gradient(180deg,#0b1426,#101d36); border:1px solid var(--line);
+    scroll-snap-type:y mandatory; overflow-y:scroll; scrollbar-width:none; }
+  .wheel::-webkit-scrollbar{ display:none; }
+  .wheel-pad{ height:44px; }
+  .wheel-item{ height:44px; display:flex; align-items:center; justify-content:center;
+    font-size:16px; font-weight:600; color:#fff; scroll-snap-align:center;
+    transition:color .15s, font-size .15s, font-weight .15s, opacity .15s; }
+  /* degradado tipo iOS: el central nítido, los vecinos cada vez más tenues */
+  .wheel-item.sel{ color:#fff; font-size:18px; font-weight:800; opacity:1; }
+  .wheel-item.d1{ color:#aebbd4; opacity:.7; }
+  .wheel-item.d2{ color:#6b7693; opacity:.45; }
+  .wheel-sel-line{ position:absolute; left:6px; right:6px; top:44px; height:44px; border-top:1px solid rgba(236,72,153,.5);
+    border-bottom:1px solid rgba(236,72,153,.5); pointer-events:none; z-index:1; border-radius:6px; }
+  /* estados de comprobación: rueda fijada en verde (acierto) o rojo (fallo) */
+  .wheel.locked{ overflow:hidden; }
+  .wheel.ok .wheel-item.sel{ color:#34d399; }
+  .wheel.ko .wheel-item.sel{ color:#fb7185; }
+  .wheel-sel-line.ok{ border-color:rgba(52,211,153,.7); background:rgba(52,211,153,.08); }
+  .wheel-sel-line.ko{ border-color:rgba(251,113,133,.7); background:rgba(251,113,133,.08); }
+  .quiz-feedback{ display:none; margin-top:14px; padding:12px 14px; border-radius:10px; font-size:13.5px; line-height:1.55; }
+  .quiz-feedback.show{ display:block; }
+  .quiz-feedback.ok{ background:rgba(52,211,153,.12); border:1px solid rgba(52,211,153,.3); color:#a7f3d0; }
+  .quiz-feedback.ko{ background:rgba(251,113,133,.1); border:1px solid rgba(251,113,133,.28); color:#fecdd3; }
+  .quiz-feedback strong{ color:#fff; }
   .modal-row button{border:0; padding:11px 18px; border-radius:10px; cursor:pointer; font-size:14px; font-weight:700;}
   .modal-row button.primary{background:#1f9d55; color:#fff;}
   .modal-row button.ghost{background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink);}
@@ -385,13 +438,16 @@
   /* ===== Tarjetas de ACCIÓN: pares apilados (discretos) + solución (verde) ===== */
   .action-grid{ display:flex; gap:8px; align-items:stretch; flex:0 0 auto; }
   .action-col{ display:flex; flex-direction:column; gap:8px; flex:0 0 auto; width:120px; }
-  .action-mini{ flex:1; background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--line);
-    border-radius:12px; padding:10px 8px; font-size:12px; font-weight:700; cursor:pointer; color:var(--muted);
+  .action-mini{ flex:1; background:linear-gradient(180deg,rgba(236,72,153,.08),rgba(236,72,153,.03)); border:1px solid rgba(236,72,153,.3);
+    border-radius:12px; padding:10px 8px; font-size:12px; font-weight:700; cursor:pointer; color:#f9a8d4;
     text-align:center; transition:border-color .15s,color .15s,background .15s; display:flex; align-items:center; justify-content:center; }
-  /* discretas: sin color propio, solo rosa al pasar el ratón */
-  .action-mini:hover{ border-color:var(--pista); color:var(--pista); }
+  /* pistas: tono rosa sutil para indicar que son el apartado de ayudas */
+  .action-mini:hover{ border-color:var(--pista); color:#fff; background:rgba(236,72,153,.18); }
   .action-mini.spent{ opacity:.4; pointer-events:none; }
   .action-mini.arming{ border-color:var(--pista); color:#fff; background:rgba(236,72,153,.18); }
+  /* bloqueada por fallo de quiz: atenuada, sin reacción al hover, pero clicable (muestra cartel) */
+  .action-mini.blocked{ opacity:.4; cursor:default; }
+  .action-mini.blocked:hover{ border-color:rgba(251,113,133,.3); color:#f9a8d4; background:linear-gradient(180deg,rgba(236,72,153,.08),rgba(236,72,153,.03)); }
   /* Solución: DESTACADA con toque verde */
   .action-card{ position:relative; flex:0 0 auto; width:118px; height:118px; background:linear-gradient(180deg,var(--panel2),var(--panel));
     border:1px solid var(--line); border-radius:14px; padding:14px 10px; display:flex; flex-direction:column;
@@ -459,7 +515,9 @@
   .course-gate-box{ background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--line);
     border-radius:18px; padding:30px; max-width:920px; width:100%; }
   .course-gate-t{ font-size:22px; font-weight:800; color:var(--ink); margin-bottom:8px; }
-  .course-gate-sub{ font-size:14px; color:var(--muted); margin-bottom:20px; line-height:1.5; }
+  .course-gate-sub{ font-size:14px; color:var(--muted); margin-bottom:22px; line-height:1.6; max-width:640px; margin-left:auto; margin-right:auto; }
+  .course-gate-sub strong{ color:var(--ink); }
+  .course-gate-sub .gate-note{ font-size:12.5px; opacity:.75; font-style:italic; }
   .course-gate-list{ display:grid; grid-template-columns:repeat(6,1fr); gap:12px; align-items:stretch; }
   .course-gate-list .course-opt{ flex-direction:column; align-items:center; justify-content:center; gap:8px;
     aspect-ratio:1/1; padding:14px; text-align:center; border-radius:16px;
@@ -510,6 +568,9 @@
   }
 
   /* frase de dificultad bajo el bloque curso + generar */
+  .hybrid-note{ text-align:center; max-width:1100px; margin:14px auto 0; font-size:14px; line-height:1.7; color:var(--muted); }
+  .hybrid-note .hn-line{ display:block; }
+  .hybrid-note .pistas-word{ color:#ec4899; font-weight:800; }
   .difficulty-hint{ display:none; text-align:right; margin:10px 0 0; font-size:12.5px; color:var(--muted2);
     font-style:italic; }
 
@@ -537,6 +598,62 @@
   /* === Reproductores bloqueados hasta generar === */
   .players-locked{ opacity:.4; pointer-events:none; filter:grayscale(.4); user-select:none; }
 
+  /* === MINI-EDITOR === */
+  .edit-bar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--line);
+    border-radius:12px; padding:10px 14px; margin:0 0 12px; }
+  .edit-bar-lbl{ font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--mel); font-weight:700; }
+  .edit-btn{ background:rgba(233,237,255,.06); color:var(--ink); border:1px solid var(--line);
+    border-radius:9px; padding:7px 14px; cursor:pointer; font-size:14px; transition:background .15s,border-color .15s; }
+  .edit-btn:hover{ background:rgba(233,237,255,.14); border-color:var(--muted); }
+  .edit-btn.on{ background:var(--mel-soft); border-color:var(--mel); color:#cfe0ff; }
+  .edit-bar-hint{ font-size:12px; color:var(--muted); margin-left:4px; }
+  .edit-bar-count{ margin-left:auto; font-size:12px; color:var(--muted2); font-weight:700;
+    background:rgba(233,237,255,.06); border:1px solid var(--line); border-radius:999px; padding:5px 12px; white-space:nowrap; }
+  /* banner de confirmación al registrar (no recarga la pantalla) */
+  .reg-banner{ position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
+    background:#13203c; color:var(--ink); border:1px solid var(--line); border-left:4px solid var(--accent);
+    border-radius:12px; padding:13px 22px; font-size:14px; font-weight:700; box-shadow:0 12px 40px rgba(0,0,0,.5);
+    opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:300; white-space:nowrap; }
+  .reg-banner.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .reg-banner.ok{ border-left-color:var(--green); }
+  .reg-banner.err{ border-left-color:var(--red); }
+  .reg-banner.wait{ border-left-color:var(--muted); }
+  .edit-done{ background:var(--green-soft); border-color:var(--green); color:#bff3df; }
+  .edit-manage{ background:rgba(251,113,133,.12); border-color:rgba(251,113,133,.4); color:#fda4af; }
+  .edit-manage:hover{ background:rgba(251,113,133,.24); color:#fff; border-color:rgba(251,113,133,.6); }
+  .ed-hit:hover{ fill:rgba(91,157,255,.12) !important; }
+  .ed-pulse-hit:hover{ fill:rgba(34,201,138,.20) !important; }
+
+  /* selector de células */
+  .modal-wide{ max-width:560px; width:92%; }
+  .cellpick-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin:14px 0; max-height:50vh; overflow:auto; }
+  .cellpick-item{ background:var(--paper); color:#16203c; border:1px solid var(--line); border-radius:10px;
+    padding:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; min-height:78px;
+    transition:transform .08s,box-shadow .12s; }
+  .cellpick-item:hover{ transform:translateY(-2px); box-shadow:0 8px 22px rgba(0,0,0,.35); }
+  .cp-vex{ width:140px; height:70px; }
+  .cp-vex svg{ display:block; max-width:100%; }
+
+  /* ===== ESQUEMA ARMÓNICO (Configuración) ===== */
+  .harm-block{ margin:18px 0 26px; }
+  .harm-mt{ font-size:14px; color:var(--ink2,#cdd6ea); margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,.08); }
+  .harm-opt{ margin:14px 0; }
+  .harm-olabel{ font-size:12px; font-weight:700; letter-spacing:.04em; color:#22c98a; margin-bottom:6px; }
+  .harm-grid{ display:flex; gap:18px; flex-wrap:wrap; }
+  .harm-frase{ flex:1; min-width:260px; }
+  .harm-flabel{ font-size:11px; opacity:.55; margin-bottom:4px; }
+  .harm-bars{ display:flex; gap:6px; }
+  .harm-bar{ display:flex; gap:3px; padding:7px 6px; background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08); border-radius:8px; flex:1; justify-content:center; }
+  .harm-deg{ font-size:14px; font-weight:600; color:#cdd6ea; min-width:20px; text-align:center;
+    font-variant-numeric:tabular-nums; }
+  .harm-deg.tonic{ color:#fff; }
+  .harm-deg.dom{ color:#7fb2ff; }
+
+  .rl-selftest{ font-size:13px; line-height:1.5; color:var(--ink2,#cdd6ea); background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:10px 12px; }
+
 </style>
 </head>
 <body>
@@ -552,11 +669,11 @@
     <div class="lm-top">
       <div class="lm-brand">
         <h1 class="lm-h1"><span class="lm">LM</span><span class="eav">EAV</span> <span class="home2">at home</span></h1>
-        <div class="lm-brand-sub">Recursos interactivos LM y EAV desde tu casa <span style="opacity:.5;font-size:11px;">· v2026-06-15b</span></div>
+        <div class="lm-brand-sub">Recursos interactivos LM y EAV desde tu casa</div>
       </div>
       <div class="lm-actions">
-        <span id="courseIndicator" class="course-indicator" style="display:none"></span>
-        <button class="btn-dado" onclick="DSgen.newDictado()" title="Generar nuevo dictado">
+        <span id="courseIndicator" class="course-indicator" style="display:none;cursor:pointer" onclick="window.DS_openGate&&window.DS_openGate()" title="Cambiar de curso"></span>
+        <button class="btn-dado" onclick="DSgen.newDictado()" title="Nuevo dictado">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/>
             <circle cx="8" cy="8" r="1.6" fill="currentColor"/>
@@ -565,7 +682,7 @@
             <circle cx="8" cy="16" r="1.6" fill="currentColor"/>
             <circle cx="16" cy="16" r="1.6" fill="currentColor"/>
           </svg>
-          <span>Generar nuevo dictado</span>
+          <span>Nuevo dictado</span>
         </button>
       </div>
     </div>
@@ -574,11 +691,28 @@
     <div class="appname-top">
       <h2><span class="pre">DICT</span><span class="post">ADO</span> <span class="home2">at home</span></h2>
     </div>
+    <p class="hybrid-note" id="hybridNote"><span class="hn-line">Haz el dictado como si estuvieras en clase: coge tu libreta de pentagramas, lápiz y goma, y sigue los audios por orden.</span><span class="hn-line">Si lo necesitas, podrás usar algunas pequeñas ayudas: <span class="pistas-word">pistas</span>.</span></p>
   </div>
 
   <!-- ===== VISTA GENERADOR ===== -->
   <div id="view-gen" class="view active">
     <div class="gen-meta" id="genMeta"></div>
+
+    <!-- barra del mini-editor (oculta hasta entrar en edición) -->
+    <div id="editBar" class="edit-bar" style="display:none;">
+      <span class="edit-bar-lbl">Edición</span>
+      <button id="edBtnAlt" class="edit-btn" onclick="DSedit.setMode('alturas')">Alturas</button>
+      <button id="edBtnEnh" class="edit-btn" onclick="DSedit.enharmonic()" title="Enarmonía (♯/♭)">♯/♭</button>
+      <button id="edBtnRit" class="edit-btn" onclick="DSedit.setMode('ritmo')">Ritmo</button>
+      <button id="edBtnPlay" class="edit-btn" onclick="DSedit.playDictado()" title="Reproducir dictado (Espacio)">&#9654;</button>
+      <span class="edit-bar-hint" id="edHint"></span>
+      <span id="midiStatus" title="Estado de conexión MIDI" style="display:none; font-size:12px; font-weight:700; padding:4px 9px; border-radius:7px; background:rgba(34,201,138,.15); color:#22c98a; border:1px solid rgba(34,201,138,.3); cursor:default;">🎹 MIDI</span>
+      <span class="edit-bar-count" id="edCount" title="Dictados registrados en la biblioteca"></span>
+      <button class="edit-btn edit-done" onclick="DSedit.registrarNow()" title="Guardar este dictado en la biblioteca (Supabase)">Registrar dictado</button>
+      <button class="edit-btn" onclick="DSedit.exportNow()">Exportar</button>
+      <button class="edit-btn" onclick="DSedit.rollNew()" title="Generar un nuevo dictado aleatorio de partida">🎲 Generar nuevo</button>
+      <button class="edit-btn edit-manage" onclick="DSmanage.open()" title="Editar o eliminar dictados registrados">🗂 Editar / eliminar</button>
+    </div>
 
     <!-- DICTADO (dos pentagramas, ancho completo) -->
     <div class="score-wrap">
@@ -598,7 +732,7 @@
             <circle cx="8" cy="16" r="1.6" fill="currentColor"/>
             <circle cx="16" cy="16" r="1.6" fill="currentColor"/>
           </svg>
-          <span class="ecta-txt"><b>GENERA</b> UN DICTADO</span>
+          <span class="ecta-txt"><b>NUEVO</b> DICTADO</span>
         </button>
       </div>
     </div>
@@ -655,7 +789,9 @@
       <button id="esub-ton" class="active" onclick="editSub('ton')">Tonalidades</button>
       <button id="esub-comp" onclick="editSub('comp')">Compases</button>
       <button id="esub-cel" onclick="editSub('cel')">Células rítmicas</button>
+      <button id="esub-rit" onclick="editSub('rit')">Criterios rítmicos</button>
       <button id="esub-mel" onclick="editSub('mel')">Criterios melódicos</button>
+      <button id="esub-arm" onclick="editSub('arm')">Esquema armónico</button>
     </div>
 
     <!-- --- TONALIDADES --- -->
@@ -680,8 +816,6 @@
         <span><i class="dot" style="background:var(--pun)"></i>Puntual · 1/sistema</span>
       </div>
       <div id="cel-host"></div>
-      <button class="laws-btn" onclick="toggleRitLaws()">📖 Criterios rítmicos <span class="laws-arrow">▾</span></button>
-      <div class="rit-laws" id="ritLaws" style="display:none"></div>
     </div>
 
     <!-- contenedor COMPARTIDO del catálogo (se mueve entre Compases y Células) -->
@@ -692,10 +826,22 @@
       <div class="list" id="list"></div>
     </div>
 
+    <!-- --- CRITERIOS RÍTMICOS --- -->
+    <div id="edit-rit" class="edit-sub">
+      <div class="sub">Resumen de los criterios rítmicos que sigue el generador, agrupados por tema.</div>
+      <div class="rit-laws" id="ritLaws"></div>
+    </div>
+
     <!-- --- CRITERIOS MELÓDICOS --- -->
     <div id="edit-mel" class="edit-sub">
       <div class="sub">Resumen de los criterios melódicos (de altura) que sigue el generador, agrupados por tema.</div>
       <div class="mel-list" id="melList"></div>
+    </div>
+
+    <!-- --- ESQUEMA ARMÓNICO --- -->
+    <div id="edit-arm" class="edit-sub">
+      <div class="sub">Esquema armónico que siguen los dictados de <b>3º y 4º GE</b>. Cada número romano es el grado de un <b>pulso</b>; las dos filas son las dos frases de 4 compases. En cada dictado se elige <b>al azar</b> una de las tres opciones (A/B/C). La <b>parte fuerte</b> de cada pulso se apoya en una nota del acorde de su grado; las partes débiles son notas de paso. <b>V⁷</b> es conceptual (dominante cadencial): no obliga a que suene la séptima.</div>
+      <div class="harm-list" id="harmList"></div>
     </div>
 
     <!-- GUARDAR CAMBIOS (con contraseña) -->
@@ -708,8 +854,24 @@
   <div id="courseGate" class="course-gate">
     <div class="course-gate-box">
       <div class="course-gate-t">¿Para qué curso?</div>
-      <div class="course-gate-sub">Elige el curso con el que vas a trabajar. De momento solo está disponible 4º de Grado Elemental.</div>
+      <div class="course-gate-sub">El nivel aproximado corresponde al <strong>final</strong> de cada uno de estos cursos. La dificultad es solo una referencia: esta aplicación es un complemento al trabajo realizado en clase.<br><br>Siéntete libre de elegir el curso en el que te sientas más cómodo haciendo el ejercicio, y de cambiarlo cuando quieras.<br><br><span class="gate-note">Los cursos en fase de pruebas requieren contraseña.</span></div>
       <div id="courseGateList" class="course-gate-list"></div>
+    </div>
+  </div>
+
+  <!-- MODAL contraseña para cursos beta (ge1, ge2 y siguientes) -->
+  <div id="betaPassModal" style="display:none; position:fixed; inset:0; z-index:300; background:rgba(2,4,12,.88); align-items:center; justify-content:center;">
+    <div style="background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:18px; padding:32px 28px; max-width:380px; width:90%; text-align:center;">
+      <div style="font-size:20px; font-weight:800; color:var(--ink); margin-bottom:10px;">Curso en fase de pruebas</div>
+      <div style="font-size:14px; color:var(--muted); margin-bottom:22px; line-height:1.6;">Este curso está en fase de pruebas<br>y es necesaria una contraseña para entrar.</div>
+      <input id="betaPassInput" type="password" placeholder="Contraseña"
+        style="width:100%; padding:11px 14px; border-radius:10px; border:1px solid var(--line); background:#06101f; color:var(--ink); font-size:15px; margin-bottom:10px; box-sizing:border-box;"
+        onkeydown="if(event.key==='Enter') DSbetaPass.check()">
+      <div id="betaPassErr" style="color:var(--red); font-size:13px; min-height:18px; margin-bottom:8px;"></div>
+      <div style="display:flex; gap:10px; justify-content:center;">
+        <button onclick="DSbetaPass.cancel()" style="padding:10px 22px; border-radius:10px; border:1px solid var(--line); background:transparent; color:var(--muted); cursor:pointer; font-size:14px;">Cancelar</button>
+        <button onclick="DSbetaPass.check()" style="padding:10px 22px; border-radius:10px; border:0; background:var(--accent); color:#fff; cursor:pointer; font-size:14px; font-weight:700;">Entrar</button>
+      </div>
     </div>
   </div>
 
@@ -727,38 +889,95 @@
   </div>
 
 
-  <!-- modal revelar tonalidad -->
+  <!-- modal revelar tonalidad (quiz con ruedas) -->
   <div id="revKeyModal" class="modal-bg">
-    <div class="modal">
-      <div class="modal-t">¿Seguro que quieres ver la tonalidad?</div>
-      <p>Actívalo solo cuando ya hayas escrito tu propia respuesta. Ver la armadura antes de pensarla te quita parte del ejercicio.</p>
-      <div class="modal-row">
+    <div class="modal modal-quiz">
+      <div class="modal-t">Antes de revelar la tonalidad, ¿cuál crees que es?</div>
+      <p class="quiz-warn">Si aciertas, se revela. <strong>Si fallas, el resto de pistas quedará bloqueado.</strong></p>
+      <div class="wheel-row" id="keyWheelRow">
+        <div class="wheel-block">
+          <div class="wheel-label">Tonalidad</div>
+          <div class="wheel" id="wheelKey"></div>
+          <div class="wheel-avail" id="keyAvailTxt"></div>
+        </div>
+        <div class="wheel-block" id="armWheelBlock">
+          <div class="wheel-label">Armadura</div>
+          <div class="wheel" id="wheelArm"></div>
+          <div class="wheel-avail">desliza ↑↓</div>
+        </div>
+      </div>
+      <div class="quiz-feedback" id="keyFeedback"></div>
+      <div class="modal-row" id="keyModalRow">
         <button class="ghost" onclick="DSgen.cancelRevealKey()">Cancelar</button>
-        <button class="primary" onclick="DSgen.confirmRevealKey()">Ver la tonalidad</button>
+        <button class="primary" onclick="DSgen.confirmRevealKey()">Comprobar</button>
+      </div>
+      <div class="modal-row" id="keyAcceptRow" style="display:none;">
+        <button class="primary" onclick="DSgen.acceptRevealKey()">Aceptar</button>
       </div>
     </div>
   </div>
-  <!-- modal revelar compás -->
+  <!-- modal revelar compás (quiz con rueda) -->
   <div id="revTsModal" class="modal-bg">
-    <div class="modal">
-      <div class="modal-t">¿Seguro que quieres ver el compás?</div>
-      <p>Actívalo solo cuando ya hayas deducido tú el compás. Intenta sentirlo antes de mirarlo.</p>
-      <div class="modal-row">
+    <div class="modal modal-quiz">
+      <div class="modal-t">Antes de revelar el compás, ¿cuál crees que es?</div>
+      <p class="quiz-warn">Si aciertas, se revela. <strong>Si fallas, el resto de pistas quedará bloqueado.</strong></p>
+      <div class="wheel-row">
+        <div class="wheel-block">
+          <div class="wheel-label">Compás</div>
+          <div class="wheel" id="wheelTs"></div>
+          <div class="wheel-avail">desliza ↑↓</div>
+        </div>
+      </div>
+      <div class="quiz-feedback" id="tsFeedback"></div>
+      <div class="modal-row" id="tsModalRow">
         <button class="ghost" onclick="DSgen.cancelRevealTs()">Cancelar</button>
-        <button class="primary" onclick="DSgen.confirmRevealTs()">Ver el compás</button>
+        <button class="primary" onclick="DSgen.confirmRevealTs()">Comprobar</button>
+      </div>
+      <div class="modal-row" id="tsAcceptRow" style="display:none;">
+        <button class="primary" onclick="DSgen.acceptRevealTs()">Aceptar</button>
+      </div>
+    </div>
+  </div>
+  <!-- modal resultado quiz (acierto / fallo) -->
+  <div id="quizResultModal" class="modal-bg">
+    <div class="modal">
+      <div class="modal-t" id="quizResTitle"></div>
+      <p id="quizResText"></p>
+      <div class="modal-row">
+        <button class="primary" onclick="DSgen.closeQuizResult()">Entendido</button>
+      </div>
+    </div>
+  </div>
+  <!-- modal GESTIÓN / ELIMINAR dictados registrados -->
+  <div id="manageModal" class="modal-bg">
+    <div class="modal manage-modal">
+      <div class="modal-t">Dictados registrados</div>
+      <p class="manage-sub" id="manageSub"></p>
+      <div class="manage-list" id="manageList"></div>
+      <div class="modal-row">
+        <button class="primary" onclick="DSmanage.close()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+  <!-- modal confirmar REEMPLAZO de dictado editado -->
+  <div id="replaceModal" class="modal-bg">
+    <div class="modal">
+      <div class="modal-t" id="replaceTitle">¿Reemplazar el dictado?</div>
+      <p id="replaceText">Vas a sobrescribir el dictado guardado con la versión que has editado. Esta acción no se puede deshacer.</p>
+      <div class="modal-row">
+        <button class="ghost" onclick="DSedit.cancelReplace()">Cancelar</button>
+        <button class="primary" onclick="DSedit.confirmReplace()">Sí, reemplazar</button>
       </div>
     </div>
   </div>
   <!-- modal advertencia solución -->
   <div id="solModal" class="modal-bg">
     <div class="modal">
-      <div class="modal-t">¿Has terminado el dictado?</div>
-      <p>Antes de ver la solución, repasa tu trabajo:</p>
-      <p class="muted">· No dejes ningún compás sin escribir. Si no lo tienes claro, invéntalo con lógica musical.<br>· Comprueba que los ritmos cuadren dentro de cada compás.<br>· Revisa la presentación: armadura y compás correctos.</p>
-      <p>No te rindas a la primera: comprueba y chequea.</p>
+      <div class="modal-t">Has terminado tu dictado, ¿qué tal fue?</div>
+      <p>Dale a continuar para ver la solución y poder corregirte.</p>
       <div class="modal-row">
         <button class="ghost" onclick="DSgen.closeSolModal()">Volver a revisar</button>
-        <button class="primary" onclick="DSgen.revealSolucion()">Ver la solución</button>
+        <button class="primary" onclick="DSgen.revealSolucion()">Continuar</button>
       </div>
     </div>
   </div>
@@ -799,11 +1018,50 @@
     </div>
   </div>
 
-  <!-- ===== PIE DISCRETO: Edición (sin clave) · Mantenimiento (con clave) ===== -->
+  <!-- ===== PIE DISCRETO: Configuración · Registrar nuevo dictado ===== -->
   <div class="footer-min">
-    <button class="foot-link" onclick="showView('cat')">Edición</button>
+    <button class="foot-link" onclick="showView('cat')">Configuración</button>
     <span class="foot-sep">·</span>
-    <button class="foot-link" onclick="DSmaint.open()">Mantenimiento</button>
+    <button class="foot-link" onclick="DSedit.open()">Registrar nuevo dictado</button>
+  </div>
+
+  <!-- modal contraseña editar -->
+  <div id="editModal" class="modal-bg">
+    <div class="modal">
+      <div class="modal-t">Editar dictado</div>
+      <p>Introduce la contraseña para abrir el mini-editor.</p>
+      <input type="password" id="editPass" class="maint-input" placeholder="Contraseña" onkeydown="if(event.key==='Enter')DSedit.check()">
+      <div id="editErr" class="maint-err"></div>
+      <div class="modal-row">
+        <button class="ghost" onclick="DSedit.cancel()">Cancelar</button>
+        <button class="primary" onclick="DSedit.check()">Editar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- modal contraseña exportar -->
+  <div id="exportModal" class="modal-bg">
+    <div class="modal">
+      <div class="modal-t">Exportar dictado</div>
+      <p>Introduce la contraseña para exportar el dictado actual (imagen JPG + XML en un ZIP).</p>
+      <input type="password" id="exportPass" class="maint-input" placeholder="Contraseña" onkeydown="if(event.key==='Enter')DSexport.check()">
+      <div id="exportErr" class="maint-err"></div>
+      <div class="modal-row">
+        <button class="ghost" onclick="DSexport.cancel()">Cancelar</button>
+        <button class="primary" onclick="DSexport.check()">Exportar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- selector de células rítmicas (1 pulso) -->
+  <div id="cellPickModal" class="modal-bg">
+    <div class="modal modal-wide">
+      <div class="modal-t">Elige una célula (1 pulso)</div>
+      <div id="cellPickGrid" class="cellpick-grid"></div>
+      <div class="modal-row">
+        <button class="ghost" onclick="DSedit.closeCellPicker()">Cancelar</button>
+      </div>
+    </div>
   </div>
   <!-- botón discreto para volver al generador, visible solo fuera de la vista generador -->
   <button id="backToGen" class="back-gen" onclick="showView('gen')">← Volver al dictado</button>
@@ -892,22 +1150,30 @@ function rng(seed){ let s=seed>>>0; return ()=>{ s=(s*1664525+1013904223)>>>0; r
 // === aplicar sensible/menor melódico a una secuencia de notas (post-proceso) ===
 // notas: array de {midi, deg, oct} de escala natural. Detecta ascensos VI-VII-I y altera.
 function applyMinorLeading(seq, tonicMidi){
-  // SOLO altera VI y VII en menor. Limpia cualquier alteración previa espuria.
-  // VII natural = +10 semis; sensible = +11. VI natural = +8; VI# = +9.
-  // Regla: sensible sube a tónica (resuelve por 2ª menor). VI#-VII#-I = menor melódico ascendente.
-  // primero, eliminar cualquier alt previo (vamos a recalcular desde cero)
+  // Altera VI y VII en menor. VII natural = +10 semis; sensible (VII#) = +11. VI natural = +8; VI# = +9.
+  // Regla sensible (flexible): el VII se alza si resuelve a la tónica...
+  //   (a) directamente:  VII# -> I
+  //   (b) con bordado:   VII# -> II -> I   (posponer la resolución pasando por el 2º grado)
+  // EXCEPCIÓN (estricta): si el VII# vendría precedido del IV (formaría tritono IV->VII#),
+  //   solo se alza cuando resuelve DIRECTAMENTE a la tónica (sin bordado).
+  // Menor melódico ascendente: VI natural seguido de VII# -> VI#.
   for(const n of seq){ if(!n.rest){ delete n.alt; delete n.altUp; } }
   const reals=seq.filter(n=>!n.rest);
   const rel=(n)=>((n.midi-tonicMidi)%12+12)%12;
-  // PASADA 1: sensible. VII natural que sube por grado conjunto a la tonica -> VII#
+  // PASADA 1: sensible (directa o con bordado por el II)
   for(let i=0;i<reals.length-1;i++){
     const n=reals[i], nx=reals[i+1];
-    if(rel(n)===10 && rel(nx)===0 && nx.midi>n.midi && (nx.midi-n.midi)<=2){
-      n.midi+=1; n.altUp=true;
-    }
+    if(rel(n)!==10) continue;
+    const prev = i>0 ? reals[i-1] : null;
+    const fromIV = prev && rel(prev)===5;       // la nota previa es el IV -> el alzado crearía tritono
+    // (a) resolución directa: VII -> tónica, ascendiendo por 2ª (<=2 semis tras alzar)
+    const direct = (rel(nx)===0 && nx.midi>n.midi && (nx.midi-n.midi)<=2);
+    // (b) bordado: VII -> II -> tónica  (solo si NO viene de tritono)
+    const nx2 = (i+2<reals.length)? reals[i+2] : null;
+    const bordado = !fromIV && nx2 && rel(nx)===2 && rel(nx2)===0 && nx.midi>n.midi;
+    if(direct || bordado){ n.midi+=1; n.altUp=true; }
   }
-  // PASADA 2: menor melodico ascendente. VI natural seguido de VII# (ya alterado) -> VI#
-  // evita la 2a aumentada VI-VII#.
+  // PASADA 2: menor melódico ascendente. VI natural seguido de VII# -> VI#.
   for(let i=0;i<reals.length-1;i++){
     const n=reals[i], nx=reals[i+1];
     if(rel(n)===8 && nx.altUp && rel(nx)===11 && nx.midi>n.midi){
@@ -1272,7 +1538,7 @@ function pickRhythm(catalog, ts, rnd, opts){
   // --- Construir PLANTILLA de niveles por pulso ---
   // niveles posibles según forbid
   // 'pulse' = la figura de pulso (negra en binario). La buscamos en el pool.
-  let pool=catalog.filter(c=>c.block===sec && (!c.onlyTS||c.onlyTS===ts) && (!c.notTS||c.notTS!==ts));
+  let pool=catalog.filter(c=>c.block===sec && !c.disabled && (!c.onlyTS||c.onlyTS===ts) && (!c.notTS||c.notTS!==ts));
   const byLevel = lvl => pool.filter(c=>c.freq===lvl && c.pulses===1);
   const bas=byLevel('bas'), rec=byLevel('rec'), oca=byLevel('oca'), pun=byLevel('pun');
   // células de 2 pulsos (sólo se usan si caben y no hay restricciones complejas)
@@ -1444,7 +1710,7 @@ function pickRhythm(catalog, ts, rnd, opts){
   let pulsesLeft=totalPulses, ocaUsed=0, punUsed=0, p=0;
   let forcedPlaced=false;
   let prevSemiHeavy=false; // ¿el pulso anterior tenía 3+ semicorcheas?
-  let prevCellSig=null;    // firma rítmica del pulso anterior (para no repetir pulsos iguales)
+  let prevCellSig=opts.prevPulseSig||null;    // firma rítmica del pulso anterior (incluye el último del compás previo, para reglas que cruzan la barra)
   function cellSig(c){ return (c.pulses===1) ? c.notes.map(n=>(typeof n==='object'?n.d:n)).join('-') : null; }
   const forcedAllCell = forceAllId? pool.find(c=>c.id===forceAllId) : null;
   let guard=0;
@@ -1493,8 +1759,20 @@ function pickRhythm(catalog, ts, rnd, opts){
     { const f3=cands.filter(c=>!(ONCE_IDS.has(c.id)&&(usedOnceIds.has(c.id)||usedOnceThisBar.includes(c.id)))); if(f3.length) cands=f3; }
     // REGLA DE DENSIDAD: no dos pulsos seguidos con 3+ semicorcheas cada uno.
     if(prevSemiHeavy){ const f4=cands.filter(c=>semiCountOf(c)<3); if(f4.length) cands=f4; }
-    // REGLA "NO REPETIR PULSO IGUAL": evitar que este pulso tenga el mismo patrón rítmico que el anterior.
-    if(prevCellSig){ const f5=cands.filter(c=>cellSig(c)!==prevCellSig); if(f5.length) cands=f5; }
+    // REGLA "NO REPETIR PULSO IGUAL", con EXCEPCIONES por compás:
+    //  - 6/8: pueden repetirse '8-8-8' (3 corcheas) y 'q-8' (negra+corchea)
+    //  - 3/4: pueden repetirse '8-8' (2 corcheas) y 'q' (negra)
+    //  - 2/4: ninguna puede repetirse
+    if(prevCellSig){
+      const REPEATABLE = (ts==='6/8') ? ['8-8-8','q-8']
+                       : (ts==='3/4') ? ['8-8','q']
+                       : [];   // 2/4 y resto: ninguna
+      const f5=cands.filter(c=>{ const s=cellSig(c); return s!==prevCellSig || REPEATABLE.includes(s); });
+      if(f5.length) cands=f5;
+    }
+    // PREFERENCIA FUERTE: no colocar 'corchea+negra' (8-q) justo después de 'negra+corchea' (q-8).
+    // (válvula de escape: si no quedara otra opción, se permite para no romper la generación)
+    if(prevCellSig==='q-8'){ const f6=cands.filter(c=>cellSig(c)!=='8-q'); if(f6.length) cands=f6; }
     const c=cands[Math.floor(rnd()*cands.length)];
     place(c); p++;
   }
@@ -1580,6 +1858,15 @@ function midiToVexKey(midi, useFlats, alt){
   return nm+'/'+oct;
 }
 
+// Convierte MIDI a clave VexFlow para pentagrama de FA.
+// Misma lógica que midiToVexKey pero la octava es la que VexFlow espera en clef bass.
+// En VexFlow bass clef, las alturas se nombran igual (c/2 = Do2, g/2 = Sol2, etc.)
+// — la conversión midi→octava es idéntica, solo cambia el clef que se pasa a StaveNote.
+// Esta función es un alias documentado; la conversión numérica es la misma.
+function midiToVexKeyBass(midi, useFlats, alt){
+  return midiToVexKey(midi, useFlats, alt); // misma fórmula; VexFlow posiciona con el clef de StaveNote
+}
+
 function generateDictado(active, opts){
   opts=opts||{};
   const rnd = opts.rnd || Math.random;
@@ -1607,6 +1894,22 @@ function generateDictado(active, opts){
     for(const t of pool){ acc+=(weights[t]||0.0001); if(r<=acc){ ts=t; break; } }
   }
   const useFlats=['F','Bb','Dm','Gm'].includes(k.key);
+
+  // === ESQUEMA ARMÓNICO (3º/4º GE) — UN GRADO POR COMPÁS ===
+  // Frase 1: I · V · [IV/II/VI] · V    Frase 2: I · IV · V · I
+  // c3: 50% IV, 25% II, 25% VI.  c6: siempre IV.  c7: puede ir I(pulso1)→V(pulso2).
+  // La PRIMERA nota de cada compás se fija a una nota del acorde del grado; la melodía fluye desde ahí.
+  // acorde (pitch classes desde la tónica) de cada grado
+  function chordSemis(grade, mode){
+    const major=[0,4,7], minor=[0,3,7];
+    const degRoot = { 1:0, 2:2, 4:5, 5:7, 6:9 };
+    const root = degRoot[grade!=null?grade:1] || 0;
+    let quality;
+    if(grade===5) quality=major;                          // dominante: triada mayor (sensible)
+    else if(mode==='minor') quality = (grade===1||grade===4)? minor : (grade===6? major : minor);
+    else quality = (grade===2||grade===6)? minor : major; // en mayor: ii y vi menores
+    return quality.map(iv => (root+iv)%12);
+  }
   const lo=57, hi=76; // La3..Mi5 (límites absolutos)
   // Ventana de registro de ESTE dictado: estrecha (~1 octava), centrada cerca de Do4-Do5,
   // para no mezclar notas muy graves (La3-Si3) con muy agudas (Re5-Mi5) en la misma pieza.
@@ -1682,6 +1985,19 @@ function generateDictado(active, opts){
   const prepLeap = !!LV.preparedLeap;             // activa la regla (3º/4º GE)
   const prepLeapProb = LV.preparedLeapProb || 0;  // 0.30 (3º) / 0.80 (4º)
   const prepLeapAllow6 = !!LV.preparedLeapAllow6; // 6ª permitida en el salto (4º GE)
+
+  // plan armónico por COMPÁS (solo 3º/4º GE). 8 grados, uno por compás.
+  // Frase 1: I · V · c3 · V   |   Frase 2: I · IV · V · I
+  // c3: 50% IV / 25% II / 25% VI.  c6: siempre IV.  c7: V.  c4: V (semicadencia).  c8: I (cierre).
+  let harmonyBarPlan=null;     // grado de cada compás (índices 0..7)
+  let harmonyBarTag=null;
+  if(prepLeap){
+    let c3; const r3=rnd();
+    if(r3<0.5) c3=4; else if(r3<0.75) c3=2; else c3=6;
+    harmonyBarPlan = [1, 5, c3, 5,  1, 4, 5, 1];
+    harmonyBarTag = (c3===4?'IV':(c3===2?'II':'VI'));   // etiqueta del compás 3 (lo variable)
+  }
+  let harmonyC7toV=false;      // (reservado: giro I->V en c7, desactivado por ahora)
   let leapFromBar = -1;                            // compás origen del salto (1 ó 5) => destino +1
   if(prepLeap && (ts==='2/4'||ts==='3/4') && rnd()<prepLeapProb){
     // elegir uno de los dos cruces: 2→3 (origen idx1) ó 6→7 (origen idx5)
@@ -1885,7 +2201,7 @@ function generateDictado(active, opts){
     if(bar25rule && !barStructRules && (m===1 || m===5)){ baseOpts.bar25=true; baseOpts.requireBasicPlusHigh=false; baseOpts.avoidPulseFig=false; baseOpts.combo=null; }
 
     // === REGLAS ESTRUCTURALES POR COMPÁS (3º/4º GE) ===
-    let structPlan=null, structSyncopa=false;
+    let structPlan=null, structSyncopa=false, structVariant=null;
     if(barStructRules && (m===1||m===2||m===5||m===6)){
       const is24 = (ts==='2/4'), is34 = (ts==='3/4'), is68 = (ts==='6/8');
       const isBar26 = (m===1||m===5); // compases 2 y 6
@@ -1901,10 +2217,16 @@ function generateDictado(active, opts){
           structPlan = (m===leapToBar) ? ['rec','pun'] : ['pun','rec'];
         }
       } else if(is34){
-        if(isBar26||isBar37){
-          // c2/3/6/7: oca/pun + figura de pulso + recurrente.
-          // Si recibe el salto, el pulso1 pasa a figura de pulso y el nivel alto al pulso2.
-          structPlan = (m===leapToBar) ? ['pulse','oca','rec'] : ['oca','pulse','rec'];
+        if(isBar26){
+          if(m===leapToBar){
+            // si recibe el salto: pulso1 figura de pulso, alto en pulso2 (igual que antes)
+            structPlan = ['pulse','oca','rec'];
+          } else {
+            // 3/4 compases 2 y 6: movido en pulso 1, figura de pulso en pulso 2, SILENCIO en pulso 3 (siempre)
+            structPlan = ['oca','pulse','rec']; structVariant='34_pulse2_rest3';
+          }
+        } else if(isBar37){
+          structPlan = (m===leapToBar) ? ['rec','pun','rec'] : ['pun','rec','rec'];
         }
       } else if(is68){
         if(isBar26) structPlan=['oca','pulse'];      // 6/8 c2/c6: oca/pun + figura de pulso
@@ -1915,6 +2237,21 @@ function generateDictado(active, opts){
     // ARRANQUE DE FRASE (compases 1 y 5): el primer pulso es una figura de pulso (asentado).
     // En 6/8 el primer pulso ya es negra con puntillo por startRhythm68; aquí cubrimos 2/4 y 3/4.
     if((m===0 || m===4) && (ts==='2/4' || ts==='3/4')){ baseOpts.firstPulseIsPulse=true; }
+
+    // CONTEXTO ENTRE COMPASES: firma rítmica del ÚLTIMO pulso del compás anterior.
+    // Permite aplicar reglas de secuencia que cruzan la barra de compás
+    // (p.ej. no 'corchea+negra' tras 'negra+corchea', aunque estén en compases distintos).
+    if(m>0 && measures.length){
+      const pn=measures[measures.length-1].notes;
+      const PBprev=(ts==='6/8')?1.5:1;
+      const DBp={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+      const tfp=new Array(pn.length).fill(1);
+      (measures[measures.length-1]._tuplets||[]).forEach(tp=>{const f=tp.def?(tp.def.notes/tp.def.num):1;for(let q=tp.start;q<tp.start+(tp.def?tp.def.first:0);q++){if(q<tfp.length)tfp[q]=f;}});
+      let acc=0; const byP={};
+      pn.forEach((n,qi)=>{ const d=(n.dur==='full'?PULSES_OF[ts]*PBprev:(DBp[(n.d||'').replace('r','')]||1)*tfp[qi]); const pp=Math.floor(acc/PBprev+1e-9); (byP[pp]=byP[pp]||[]).push((n.d||'').replace('r','')); acc+=d; });
+      const keys=Object.keys(byP); const lastK=keys[keys.length-1];
+      baseOpts.prevPulseSig = lastK!=null ? byP[lastK].join('-') : null;
+    }
 
     let r;
     if(structSyncopa){
@@ -1944,6 +2281,21 @@ function generateDictado(active, opts){
     } else {
       r = pickRhythm(active, ts, rnd, baseOpts);
     }
+    // VARIANTE C (3/4, compases 2/6): figura de pulso en pulso 2 + SILENCIO de negra en pulso 3.
+    // El plan generó pulso3 con figuras; las sustituimos por un silencio de negra (qr).
+    if(structVariant==='34_pulse2_rest3' && ts==='3/4' && r && r.tokens){
+      // localizar el inicio del 3er pulso (acumulando duraciones reales, con tuplet)
+      const DBv={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+      const tfv=new Array(r.tokens.length).fill(1);
+      (r.tuplets||[]).forEach(tp=>{const f=tp.def?(tp.def.notes/tp.def.num):1;for(let q=tp.start;q<tp.start+(tp.def?tp.def.first:0);q++){if(q<tfv.length)tfv[q]=f;}});
+      let acc=0, cut=-1;
+      for(let i=0;i<r.tokens.length;i++){ if(Math.abs(acc-2)<1e-6){ cut=i; break; } acc+=(DBv[(r.tokens[i].d||'').replace('r','')]||0)*tfv[i]; }
+      if(cut>=0){
+        // recortar tuplets que cayeran en el 3er pulso y poner silencio de negra
+        r.tuplets=(r.tuplets||[]).filter(tp=>tp.start<cut);
+        r.tokens=r.tokens.slice(0,cut).concat([{d:'qr'}]);
+      }
+    }
     if(r.usedHighIds) r.usedHighIds.forEach(id=>usedHighIds.add(id));
     if(r.usedOnceIds) r.usedOnceIds.forEach(id=>usedOnceIds.add(id));
     if(r.levelsUsed && r.levelsUsed.forced4semi) fourSemiPlaced=true;
@@ -1964,12 +2316,53 @@ function generateDictado(active, opts){
     // melodía. Con salto preparado activo (3º/4º GE), la melodía base se limita a 3ª (2 grados):
     // los únicos saltos mayores serán el salto preparado (añadido después) y el cierre (compás aparte).
     const maxStepGrados = prepLeap ? 2 : (maxLeap?4:7);
-    notes=assignMelody(figs, scale, m===0?startTonic:cursorMidi, rnd, prevBarEndedInSemi, regWindow, maxStepGrados, (arpLeapsOnly?{arpPC:[0,(k.mode==='minor'?3:4),7].map(s=>((tonicPc+s)%12))}:null));
-    // primer compás del dictado: forzar primera nota = tónica
-    if(m===0){ const fr=notes.find(n=>!n.rest); if(fr){ fr.midi=startTonic; fr.deg=1; } }
+    // ANCLA ARMÓNICA (3º/4º GE): la primera nota del compás se fija a una nota del acorde de su grado;
+    // la melodía del compás se genera A PARTIR de esa nota (fluye natural desde el ancla).
+    const isCloseBar = (m===7);   // compás 8 (cierre) va aparte
+    let startMidiBar = (m===0? startTonic : cursorMidi);
+    if(harmonyBarPlan && m>0 && !isCloseBar){
+      const grade = harmonyBarPlan[m];
+      if(grade!=null){
+        const pcs = chordSemis(grade, k.mode).map(s=>((tonicPc+s)%12));
+        let best=null,bd=Infinity;
+        scale.forEach(s=>{ const pc=((s.midi%12)+12)%12; if(!pcs.includes(pc)) return; if(s.midi<useLo||s.midi>useHi) return; const d=Math.abs(s.midi-cursorMidi); if(d<bd){bd=d;best=s.midi;} });
+        if(best!=null) startMidiBar=best;
+      }
+    }
+    notes=assignMelody(figs, scale, startMidiBar, rnd, prevBarEndedInSemi, regWindow, maxStepGrados, (arpLeapsOnly?{arpPC:[0,(k.mode==='minor'?3:4),7].map(s=>((tonicPc+s)%12))}:null));
+    // fijar explícitamente la primera nota real del compás al ancla armónica (assignMelody puede desviarla)
+    if(harmonyBarPlan && m>0 && !isCloseBar){
+      const fr=notes.find(n=>!n.rest);
+      if(fr){ fr.midi=startMidiBar; fr._harmAnchor=true; }   // protegida: las pasadas no la mueven
+      // COMPÁS 7: giro I (pulso 1) -> V (pulso 2). Fijar la 1ª nota del 2º pulso a una nota del acorde de V.
+      if(m===6 && harmonyC7toV){
+        const PBc = (ts==='6/8'||ts==='3/8'||ts==='9/8')?1.5:1;
+        const DBc={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+        const pcsV = chordSemis(5, k.mode).map(s=>((tonicPc+s)%12));
+        let acc=0, done=false;
+        for(let qi=0; qi<notes.length && !done; qi++){
+          const n=notes[qi];
+          const dur=(n.dur==='full'? PULSES*PBc : (DBc[(n.d||'').replace('r','')]||1));
+          const pulseInBar=Math.floor(acc/PBc+1e-9);
+          if(pulseInBar===1 && !n.rest){   // primera nota del 2º pulso
+            const ref=n.midi; let best=null,bd=Infinity;
+            scale.forEach(s=>{ const pc=((s.midi%12)+12)%12; if(!pcsV.includes(pc)) return; if(s.midi<useLo||s.midi>useHi) return; const d=Math.abs(s.midi-ref); if(d<bd){bd=d;best=s.midi;} });
+            if(best!=null) n.midi=best;
+            done=true;
+          }
+          acc+=dur;
+        }
+      }
+    }
     // COMPASES 1 y 5 (presentación): melodía muy sencilla -> escala (grado conjunto) o arpegio
     if(m===0){
+      // Fijar la primera nota ANTES: simplePresentation respetará firstFixed=true
+      const fr=notes.find(n=>!n.rest);
+      if(fr){ fr.midi=startTonic; fr.deg=scale.findIndex(s=>s.midi===startTonic); if(fr.deg<0) fr.deg=0; fr._firstFixed=true; }
       simplePresentation(notes, scale, startTonic, tonicPc, k.mode, rnd);
+      // Volver a fijar por si acaso (doble garantía)
+      if(fr){ fr.midi=startTonic; }
+      delete (fr||{})._firstFixed;
       presentationPlan = notes.filter(n=>!n.rest).map(n=>n.midi); // melodía del c1 (para imitar en c5)
     } else if(m===4){
       // c5 imita la MELODÍA del c1 (mismo ritmo ya garantizado) variando ligeramente alguna nota
@@ -2330,7 +2723,7 @@ function generateDictado(active, opts){
     const flat=[]; measures.forEach((m,mi)=>m.notes.forEach((n,ni)=>{ if(!n.rest) flat.push({n,mi,ni}); }));
     flat.forEach((o)=>{
       const n=o.n;
-      if(n._lock) return;
+      if(n._lock || n._harmAnchor) return;
       // subir a la franja central toda nota por debajo de Do4 (sin excepciones de La3 suelto,
       // que creaba saltos de 9ª con la nota aguda anterior). Techo Mi5.
       if(n.midi < 60){ const up=n.midi+12; if(up<=76){ n.midi=up; n.k=midiToVexKey(up, useFlats, n.alt); } }
@@ -2461,34 +2854,9 @@ function generateDictado(active, opts){
     }
   })();
 
-  // (sensible aplicada al final, tras todas las reescrituras melódicas)
-  // === SENSIBLE / MENOR MELÓDICO (única fuente de alteraciones) ===
-  if(k.mode==='minor'){
-    const flatAll=[];
-    measures.forEach(m=>{ m.notes.forEach(n=>{ if(!n.rest){ flatAll.push(n); delete n.alt; delete n.altUp; } }); });
-    applyMinorLeading(flatAll, k.tonicMidi);
-    // MÁXIMO 3 ALTERACIONES por dictado: conservar preferentemente las sensibles (VII->I)
-    let altered=flatAll.filter(n=>n.altUp);
-    if(altered.length>3){
-      const idxOfNote=(n)=>flatAll.indexOf(n);
-      altered.forEach(n=>{ const rel=((n.midi-k.tonicMidi)%12+12)%12; n._prio=(rel===11)?2:1; });
-      altered.sort((a,b)=> (b._prio-a._prio) || (idxOfNote(a)-idxOfNote(b)));
-      const keep=new Set(altered.slice(0,3));
-      altered.forEach(n=>{ if(!keep.has(n)){ n.midi-=1; delete n.altUp; } });
-    }
-    // símbolo según armadura; persistencia en el compás (no repetir el accidental en la misma nota)
-    measures.forEach(m=>{
-      const seen=new Set();
-      m.notes.forEach(n=>{
-        if(n.rest) return;
-        if(n.altUp){
-          n.alt = accidentalForRaise(n.midi, k.keySig);
-          if(seen.has(n.midi)) delete n.alt; else seen.add(n.midi);
-        }
-        n.k=midiToVexKey(n.midi, useFlats, n.alt);
-      });
-    });
-  } else {
+  // (sensible aplicada como ÚLTIMA pasada, ver bloque al final, antes del return,
+  //  para que ninguna reescritura melódica posterior la borre)
+  if(k.mode!=='minor'){
     measures.forEach(m=>{ m.notes.forEach(n=>{ if(!n.rest) delete n.alt; }); });
   }
 
@@ -2512,11 +2880,20 @@ function generateDictado(active, opts){
       if(!a._lock && !b._lock){
         // candidatos de destino: notas de la escala en registro a intervalo permitido de 'a',
         // que NO formen tritono/7ª con aPrev (el salto sale de 'a', pero aPrev→a debe seguir limpio: ya lo está).
+        // candidatos de destino: notas de la escala en registro a intervalo permitido de 'a'.
+        // LA ARMONÍA MANDA: si hay plan armónico, el destino debe ser una de las notas del acorde
+        // del compás destino (fundamental, 3ª o 5ª; no necesariamente la tónica).
+        let destChordPcs=null;
+        if(harmonyBarPlan && harmonyBarPlan[leapToBar]!=null){
+          const tpcL=((k.tonicMidi%12)+12)%12;
+          destChordPcs = chordSemis(harmonyBarPlan[leapToBar], k.mode).map(s=>((tpcL+s)%12));
+        }
         const cands=[];
         sc.forEach((s,ni)=>{
           if(s.midi<57||s.midi>76) return;
           const iv=Math.abs(s.midi-a.midi);
           if(!semisAllowed.includes(iv)) return;
+          if(destChordPcs && !destChordPcs.includes(((s.midi%12)+12)%12)) return;  // armonía manda
           cands.push({ni, midi:s.midi, dir:(s.midi>a.midi?1:-1)});
         });
         // barajar candidatos
@@ -2629,6 +3006,35 @@ function generateDictado(active, opts){
       }
     }
   }
+
+  // === SIN NOTAS IGUALES CONSECUTIVAS: A-A no permitido (salvo cierre final o notas bloqueadas por salto). ===
+  // Mueve la 2ª nota de cada par igual a un grado vecino limpio (no tritono/7ª, respeta 2ª-tras-semicorchea).
+  function noRepeatedNotesPass(){
+    const flat=[]; measures.forEach((m,mi)=>m.notes.forEach((n)=>{ if(!n.rest) flat.push({n,mi}); }));
+    const sc=scale; const lastBar=measures.length-1;
+    function idxOf(midi){ let bi=-1,bd=Infinity; sc.forEach((s,ii)=>{const d=Math.abs(s.midi-midi);if(d<bd){bd=d;bi=ii;}}); return bi; }
+    for(let i=1;i<flat.length;i++){
+      const A=flat[i-1], B=flat[i];
+      if(A.n.midi!==B.n.midi) continue;
+      if(B.mi===lastBar || A.mi===lastBar) continue;
+      if(B.n._lock || B.n._leapLock || A.n._leapLock) continue;
+      const prev=A.n.midi;
+      const next=(i+1<flat.length)? flat[i+1].n.midi : null;
+      const bFollowsSemi = (A.n.d==='16');
+      const ci=idxOf(B.n.midi);
+      const cand=[ci+1,ci-1,ci+2,ci-2].filter(x=>x>=0&&x<sc.length).map(x=>sc[x].midi)
+        .filter(mm=> mm!==prev && mm>=57 && mm<=76
+                   && Math.abs(mm-prev)!==6 && Math.abs(mm-prev)!==10 && Math.abs(mm-prev)!==11
+                   && (next==null || (mm!==next && Math.abs(mm-next)!==6 && Math.abs(mm-next)!==10 && Math.abs(mm-next)!==11))
+                   && (!bFollowsSemi || Math.abs(mm-prev)<=2)
+                   && (next==null || Math.abs(mm-next)<=4));
+      if(cand.length){
+        cand.sort((x,y)=>Math.abs(x-B.n.midi)-Math.abs(y-B.n.midi));
+        B.n.midi=cand[0]; B.n.k=midiToVexKey(cand[0], useFlats, B.n.alt);
+      }
+    }
+  }
+  noRepeatedNotesPass();
 
   // Por defecto, la 8ª (12 semis). Recorre TODO el dictado, incluidos los saltos entre compases,
   // y acerca la nota que rompe el límite (sin tocar las locked ni crear repetición).
@@ -2786,8 +3192,93 @@ function generateDictado(active, opts){
     if(best!=null){ A.midi=best; A.k=midiToVexKey(best, useFlats, A.alt); }
   })();
 
+  // (La armonía ahora se aplica como ANCLA al inicio de cada compás, dentro del bucle de generación;
+  //  no hay pasada armónica por pulso posterior, para que la melodía fluya natural desde el ancla.)
+
+  // === RE-ANCLA ARMÓNICA: tras todas las pasadas, la PRIMERA nota de cada compás (salvo c1 y c8)
+  //     debe ser del acorde de su grado. Si para lograrlo hay que reacomodar la 2ª nota (que es de
+  //     paso), se hace, siempre que no se creen tritono/7ª/>8ª. Respeta notas locked. ===
+  if(harmonyBarPlan){
+    const tonicPcR=((k.tonicMidi%12)+12)%12;
+    function badR(iv){ return iv===6||iv===10||iv===11||iv>12; }
+    measures.forEach((m,mi)=>{
+      if(mi===0 || mi===measures.length-1) return;
+      const grade=harmonyBarPlan[mi]; if(grade==null) return;
+      const reals=m.notes.filter(n=>!n.rest); if(!reals.length) return;
+      const fr=reals[0];
+      if(fr._lock || fr._leapLock) return;
+      const pcs=chordSemis(grade,k.mode).map(s=>((tonicPcR+s)%12));
+      if(pcs.includes(((fr.midi%12)+12)%12)) return;   // ya es del acorde
+      // nota previa (último real del compás anterior) y siguiente (2ª nota del compás)
+      const prevReal = (function(){ for(let z=mi-1;z>=0;z--){ const rr=measures[z].notes.filter(n=>!n.rest); if(rr.length) return rr[rr.length-1]; } return null; })();
+      const prevMidi = prevReal? prevReal.midi : null;
+      const nb = reals.length>1 ? reals[1] : null;
+      const nbFollowsSemi = (fr.d==='16');   // si la 2ª nota entra a semis, no tocar el grupo
+      // candidatos de acorde en registro, ordenados por cercanía a la nota actual
+      const chordMidis=[]; scale.forEach(s=>{ const pc=((s.midi%12)+12)%12; if(pcs.includes(pc) && s.midi>=useLo && s.midi<=useHi) chordMidis.push(s.midi); });
+      chordMidis.sort((x,y)=>Math.abs(x-fr.midi)-Math.abs(y-fr.midi));
+      for(const cm of chordMidis){
+        // no crear disonancia con la nota previa (salto entre compases)
+        if(prevMidi!=null && badR(Math.abs(cm-prevMidi))) continue;
+        if(nb==null){ fr.midi=cm; fr.k=midiToVexKey(cm, useFlats, fr.alt); break; }
+        // ¿la 2ª nota queda limpia con la nueva 1ª? si sí, listo
+        if(!badR(Math.abs(nb.midi-cm))){ fr.midi=cm; fr.k=midiToVexKey(cm, useFlats, fr.alt); break; }
+        // si no, intentar reacomodar la 2ª nota (de paso) a un grado conjunto de cm que también encaje con la 3ª
+        if(!nb._lock && !nb._leapLock && !nbFollowsSemi){
+          const third = reals.length>2 ? reals[2].midi : null;
+          let nbNew=null,bd=Infinity;
+          scale.forEach(s=>{ if(s.midi<useLo||s.midi>useHi) return; if(Math.abs(s.midi-cm)>2||s.midi===cm) return;  // 2ª de cm
+            if(third!=null && badR(Math.abs(third-s.midi))) return;
+            const d=Math.abs(s.midi-nb.midi); if(d<bd){bd=d;nbNew=s.midi;} });
+          if(nbNew!=null){ fr.midi=cm; fr.k=midiToVexKey(cm, useFlats, fr.alt); nb.midi=nbNew; nb.k=midiToVexKey(nbNew, useFlats, nb.alt); break; }
+        }
+      }
+    });
+    noRepeatedNotesPass();
+  }
+
+  // === SENSIBLE / MENOR MELÓDICO — ÚLTIMA PASADA (tras saltos, capIntervals, semicadencia) ===
+  // Norma: en menor, el VII que SUBE por grado conjunto a la tónica se alza (sensible);
+  // al BAJAR se mantiene natural (menor natural). VI seguido de VII# ascendente -> VI# (menor melódico).
+  if(k.mode==='minor'){
+    const flatAll=[];
+    measures.forEach(m=>{ m.notes.forEach(n=>{ if(!n.rest){ flatAll.push(n); delete n.alt; delete n.altUp; } }); });
+    applyMinorLeading(flatAll, k.tonicMidi);
+    measures.forEach(m=>{
+      const seen=new Set();
+      m.notes.forEach(n=>{
+        if(n.rest) return;
+        if(n.altUp){
+          n.alt = accidentalForRaise(n.midi, k.keySig);
+          if(seen.has(n.midi)) delete n.alt; else seen.add(n.midi);
+        } else { delete n.alt; }
+        n.k=midiToVexKey(n.midi, useFlats, n.alt);
+      });
+    });
+  }
+
+  // === GARANTÍA FINAL: el dictado SIEMPRE empieza en la tónica ===
+  // (tras todos los post-procesos, que podían haber movido la primera nota)
+  (function forceStartTonic(){
+    const m0=measures[0]; if(!m0) return;
+    const fr=m0.notes.find(n=>!n.rest); if(!fr) return;
+    // octava de tónica más cercana a la primera nota generada, dentro de la ventana de registro
+    const cands=scale.filter(s=>(((s.midi%12)+12)%12)===tonicPc);
+    if(!cands.length) return;
+    let best=cands[0], bd=Infinity;
+    cands.forEach(s=>{ const d=Math.abs(s.midi-fr.midi); if(d<bd){ bd=d; best=s; } });
+    // si hay registro especial La menor, preferir La4 (69) como en el resto del motor
+    let target=best.midi;
+    if(aMinorReg && scale.find(s=>s.midi===69)) target=69;
+    fr.midi=target;
+    fr.deg=1;
+    delete fr.alt; delete fr.altUp;
+    fr.k=midiToVexKey(target, useFlats, null);
+  })();
+
   return {
     key:k.key, name:k.name, mode:k.mode, keySig:k.keySig, tonicMidi:k.tonicMidi,
+    harmonyBarPlan: harmonyBarPlan,
     ts, beatsPerBar:PULSES, pulseFig:(ts==='6/8'||ts==='3/8'||ts==='9/8')?'qd':'q',
     measures
   };
@@ -2795,7 +3286,9 @@ function generateDictado(active, opts){
   function decorate(n, uf){
     let midi=n.midi;
     const vk=midiToVexKey(midi, uf);
-    return {k:vk, midi:midi, d:n.d, t:n.t, dur:n.dur, alt:n.alt};
+    const o={k:vk, midi:midi, d:n.d, t:n.t, dur:n.dur, alt:n.alt};
+    if(n._harmAnchor) o._harmAnchor=true;
+    return o;
   }
 }
 
@@ -2913,7 +3406,8 @@ function simplePresentation(notes, scale, startMidi, tonicPc, mode, rnd){
     const arpCount=Math.min(3, reals.length);   // 3 notas de arpegio como máximo
     for(let q=0;q<reals.length;q++){
       if(q===0){
-        // primera nota: la de salida (acorde)
+        // primera nota: ya fijada externamente (_firstFixed), no tocar
+        if(reals[0]._firstFixed){ cur=idxOf(reals[0].midi); continue; }
       } else if(q<arpCount){
         // siguiente grado del acorde en la dirección del arpegio
         let steps=0;
@@ -2931,6 +3425,7 @@ function simplePresentation(notes, scale, startMidi, tonicPc, mode, rnd){
     let dir = rnd()<0.5?1:-1;
     let cur=si;
     for(let q=0;q<reals.length;q++){
+      if(q===0 && reals[0]._firstFixed){ cur=idxOf(reals[0].midi); continue; }
       if(q>0){
         let nx=cur+dir;
         if(nx<0||nx>=scale.length||scale[nx].midi<57){ dir=-dir; nx=cur+dir; if(nx<0||nx>=scale.length)nx=cur; }
@@ -3106,7 +3601,7 @@ const CELLS = [
   {id:'t_silS_v4', name:"Silencio de semicorchea — zS en 4ª", block:'ternario', ts:'3/8', pulses:1, def:false, freq:'pun', notes:['16','16','16','16r','16','16']},
   {id:'t_silS_v5', name:"Silencio de semicorchea — zS en 5ª", block:'ternario', ts:'3/8', pulses:1, def:false, freq:'pun', notes:['16','16','16','16','16r','16']},
   {id:'t_gve_v1', name:"GVE (grupos de valoración especial) — Dosillo de corcheas (2:3)", block:'ternario', ts:'3/8', pulses:1, def:false, freq:'oca', notes:[{"d":"8","t":1},{"d":"8","t":1}], tuplet:{"first":2,"num":2,"notes":3}},
-  {id:'t_gve_v2', name:"GVE (grupos de valoración especial) — Cuatrillo de corcheas (4:3)", block:'ternario', ts:'3/8', pulses:1, def:false, freq:'oca', notes:[{"d":"8","t":1},{"d":"8","t":1},{"d":"8","t":1},{"d":"8","t":1}], tuplet:{"first":4,"num":4,"notes":3}},
+  {id:'t_gve_v2', name:"GVE (grupos de valoración especial) — Cuatrillo de corcheas (4:3)", block:'ternario', ts:'3/8', pulses:1, def:false, disabled:true, freq:'oca', notes:[{"d":"8","t":1},{"d":"8","t":1},{"d":"8","t":1},{"d":"8","t":1}], tuplet:{"first":4,"num":4,"notes":3}},
   // ===== S. BINARIO =====
   {id:'b_negra', name:"Negra", block:'binario', ts:'2/4', pulses:1, def:true, freq:'bas', notes:['q']},
   {id:'b_silnegra', name:"Silencio de negra", block:'binario', ts:'2/4', pulses:1, def:false, freq:'oca', notes:['qr']},
@@ -3171,7 +3666,7 @@ function renderScore(host, ts, notes, tuplet, W, H){
     const dur=raw.replace('d','').replace('r','');
     const dot=raw.includes('d'); const rest=raw.includes('r');
     const sn=new VF.StaveNote({keys:['b/4'], duration:dur+(rest?'r':''), clef:'treble', stem_direction:1});
-    if(dot && !rest) sn.addModifier(new VF.Dot(),0);
+    if(dot) sn.addModifier(new VF.Dot(),0);  // el puntillo también en silencios (qdr)
     vfnotes.push(sn);
   });
   let tupletGroups=[];
@@ -3437,7 +3932,7 @@ window.cat_exportSel=exportSel; window.cat_copyOut=copyOut; window.cat_setAll=se
 // ===== SUB-NAVEGACIÓN DE LA VISTA EDICIÓN (Tonalidades / Compases / Células / Criterios melódicos) =====
 function editSub(which){
   if(window.DS_buildCourseFloat) window.DS_buildCourseFloat();
-  ['ton','comp','cel','mel'].forEach(s=>{
+  ['ton','comp','cel','rit','mel','arm'].forEach(s=>{
     const b=document.getElementById('esub-'+s); if(b) b.classList.toggle('active', s===which);
     const v=document.getElementById('edit-'+s); if(v) v.classList.toggle('active', s===which);
   });
@@ -3448,14 +3943,44 @@ function editSub(which){
   } else if(which==='cel'){
     document.getElementById('cel-host').appendChild(shared); shared.style.display='block';
     if(window.DS&&window.DS.catalog) window.DS.catalog.setMode('cells');
-    buildRitLaws();
   } else {
     shared.style.display='none';
   }
   if(which==='ton') buildTonalidades();
+  if(which==='rit') buildRitLaws();
   if(which==='mel') mel_build();
+  if(which==='arm') harm_build();
 }
 window.editSub = editSub;
+
+// ===== ESQUEMA ARMÓNICO: un grado por compás =====
+function harm_build(){
+  var host=document.getElementById('harmList'); if(!host) return;
+  // I · V · [IV/II/VI] · V  ‖  I · IV · V · I  (c7 gira I->V; c3 variable)
+  function deg(g){ return ({1:'I',2:'II',4:'IV',5:'V',6:'VI'})[g]||g; }
+  function bar(label, content, cls){ return '<div class="harm-bar2'+(cls?' '+cls:'')+'"><div class="hb-num">'+label+'</div><div class="hb-deg">'+content+'</div></div>'; }
+  var html='';
+  html+='<div class="harm-frase2"><div class="harm-flabel">Frase 1 (compases 1–4)</div><div class="harm-bars2">';
+  html+=bar('1','I','tonic');
+  html+=bar('2','V','dom');
+  html+=bar('3','IV <span class="hb-alt">/ II / VI</span>','var');
+  html+=bar('4','V','dom');
+  html+='</div></div>';
+  html+='<div class="harm-frase2"><div class="harm-flabel">Frase 2 (compases 5–8)</div><div class="harm-bars2">';
+  html+=bar('5','I','tonic');
+  html+=bar('6','IV');
+  html+=bar('7','V','dom');
+  html+=bar('8','I','tonic');
+  html+='</div></div>';
+  html+='<div class="harm-notes">';
+  html+='<p><b>Compás 3:</b> 50% IV · 25% II · 25% VI (al azar en cada dictado).</p>';
+  html+='<p><b>Compás 6:</b> siempre IV.</p>';
+  html+='<p><b>Compás 7:</b> V (dominante), que resuelve a la tónica del cierre (compás 8).</p>';
+  html+='<p>La <b>primera nota de cada compás</b> se apoya en una de las tres notas del acorde de su grado (fundamental, 3ª o 5ª); el resto de la melodía se genera con naturalidad a partir de ahí.</p>';
+  html+='</div>';
+  host.innerHTML=html;
+}
+window.harm_build = harm_build;
 
 // ===== TONALIDADES: círculo de quintas (7b..7#), activas <=2 alteraciones =====
 // orden de quintas con su nº de alteraciones (negativo=bemoles, positivo=sostenidos)
@@ -3571,7 +4096,35 @@ function buildRitLaws(){
     g.items.forEach(it=>{ html+='<li>'+it+'</li>'; });
     html+='</ul></div>';
   });
+  html+='<div class="rl-group"><div class="rl-gt">Autodiagnóstico (en vivo)</div><div id="ritSelfTest" class="rl-selftest">Comprobando…</div></div>';
   host.innerHTML=html;
+  // === AUTOTEST: genera dictados con el motor REAL y comprueba la regla de compases 2/6 en 6/8 ===
+  setTimeout(function(){
+    var out=document.getElementById('ritSelfTest'); if(!out) return;
+    try{
+      if(!window.DGEN || !window.DGEN.generateDictado){ out.textContent='Motor no disponible.'; return; }
+      var cat = (typeof activeCatalog==='function') ? activeCatalog() : null;
+      var active = cat && cat.active ? cat.active : null;
+      var lvl = window.DS_LEVEL || {};
+      var DB={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+      var ok68=0, tot68=0, n=60;
+      for(var i=0;i<n;i++){
+        var D = window.DGEN.generateDictado(active, {meters:['6/8'], keys: cat?cat.keys:null, level: lvl});
+        if(!D) continue;
+        [1,5].forEach(function(mi){
+          var m=D.measures[mi]; if(!m) return;
+          var acc=0, seg=[];
+          m.notes.forEach(function(nn){ var d=(nn.d||'').replace('r',''); var dur=nn.dur==='full'?3:(DB[d]||1); var pulso=Math.floor(acc/1.5+1e-9); if(pulso===1) seg.push(nn.d); acc+=dur; });
+          tot68++;
+          if(seg.length===1 && (seg[0]==='qd'||seg[0]==='qdr')) ok68++;
+        });
+      }
+      var pct = tot68? Math.round(100*ok68/tot68) : 0;
+      var color = (pct>=95)?'#22c98a':(pct>=70?'#e0b341':'#e06b5a');
+      out.innerHTML = 'Build <b>R7</b>. Regla compases 2/6 en 6/8 (2º pulso = figura de pulso), probada en vivo sobre '+tot68+' compases del curso actual: <b style="color:'+color+'">'+pct+'% correcto</b>.'
+        + (pct>=95 ? ' ✓ La regla está activa en esta versión.' : ' Si ves un porcentaje bajo, avísame.');
+    }catch(e){ out.textContent='No se pudo ejecutar el autotest: '+e.message; }
+  }, 50);
 }
 
 // ===== LEYES MELÓDICAS =====
@@ -3651,9 +4204,10 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     {id:'gp2', label:'2º Grado Profesional', num:'2º', g:'G', e:'P', locked:true},
   ];
   // En el GATE de entrada, cursos elegibles (configurados).
-  const GATE_AVAILABLE = ['ge1','ge2','ge3','ge4'];
-  // En EDICIÓN se puede navegar por todos los de Grado Elemental (GP siguen bloqueados).
-  const EDIT_AVAILABLE = ['ge1','ge2','ge3','ge4'];
+  const GATE_AVAILABLE = ['ge3'];
+  const GATE_BETA = ['ge1','ge2'];   // cursos con acceso por contraseña
+  // En EDICIÓN, de momento solo 3º GE (el resto, próximamente).
+  const EDIT_AVAILABLE = ['ge3'];
 
   let activeCourse = null;   // curso con el que se GENERAN dictados (se fija en el gate)
   let editingCourse = null;  // curso que se está mirando/configurando en Edición
@@ -3723,6 +4277,8 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
   function setActiveCourse(id){
     activeCourse = id;
     window.DS_ACTIVE_COURSE = id;
+    try{ if(window.DSgen && window.DSgen.updateHintButtonsForCourse) window.DSgen.updateHintButtonsForCourse(); }catch(e){}
+    window.DS_COURSE_LABEL = (COURSES.find(x=>x.id===id)||{}).label || id;
     // el generador usará la config de este curso
     window.DS_COURSE_CFG = courseCfg[id] || null;
     // CRITERIOS POR CURSO:
@@ -3739,6 +4295,21 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
         bar25rule:false,             // 1º GE NO usa la regla bar25 (pulso difícil + figura de pulso)
         semiPhraseRest:true          // en su lugar: compases 2 y 6 = cierre de semifrase (negra+silencio o blanca)
       });
+    }
+
+    // REGLAS RÍTMICAS ESTRUCTURALES (compases 2/3/6/7 + síncopas) + SALTO PREPARADO.
+    // 3º y 4º GE las usan; sustituyen a la antigua bar25rule (que solo cubría el 2º pulso de c2/c6).
+    if(id==='ge3'){
+      lvl.barStructRules = true;
+      lvl.bar25rule = false;            // ya no hace falta: barStructRules cubre los compases 2/6
+      lvl.preparedLeap = true;
+      lvl.preparedLeapProb = 0.30;      // 3º GE: salto preparado ocasional
+    }
+    if(id==='ge4'){
+      lvl.barStructRules = true;        // <-- ESTO faltaba en 4º GE (causaba el fallo del 2º pulso en c2/c6)
+      lvl.preparedLeap = true;
+      lvl.preparedLeapProb = 0.80;      // 4º GE: salto preparado frecuente
+      lvl.preparedLeapAllow6 = true;    // 6ª permitida + activa el salto libre
     }
 
     // REGISTRO LA MENOR centrado en Do4–Do5 (techo Mi5, La3 sólo de remate): desde 2º GE en adelante.
@@ -3788,10 +4359,17 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     host.innerHTML='';
     COURSES.forEach(c=>{
       const avail = GATE_AVAILABLE.includes(c.id) && !c.locked;
+      const beta  = GATE_BETA.includes(c.id) && !c.locked;
       const b=document.createElement('button');
-      b.className='course-opt'+(avail?'':' locked');
-      b.innerHTML='<span class="course-opt-l">'+c.label+'</span>'+(avail?'':'<span class="course-opt-tag">Próximamente</span>');
-      if(avail){ b.onclick=()=>{ setActiveCourse(c.id); buildFloating(); closeGate(); }; }
+      // beta: atenuado + "Próximamente" pero clicable (abre modal contraseña)
+      b.className='course-opt'+( avail ? '' : (beta ? ' locked' : ' locked') );
+      b.innerHTML='<span class="course-opt-l">'+c.label+'</span>'+(!avail ? '<span class="course-opt-tag">Próximamente</span>' : '');
+      if(avail){
+        b.onclick=()=>{ setActiveCourse(c.id); buildFloating(); closeGate(); try{ if(window.DSgen) window.DSgen.clearDictado(); }catch(e){} };
+      } else if(beta){
+        b.style.cursor='pointer';
+        b.onclick=()=>{ DSbetaPass.open(c.id); };
+      }
       host.appendChild(b);
     });
   }
@@ -3847,6 +4425,10 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
   window.DS_saveCourse = saveCourseConfig;
   window.DS_copySaveOut = function(){ const t=document.getElementById('saveOutText'); if(t){ t.select(); document.execCommand('copy'); } };
   window.DS_closeSave = function(){ const m=document.getElementById('saveModal'); if(m) m.style.display='none'; };
+  window.DS_openGate = openGate;   // reabrir el selector de curso (indicador pulsable)
+  // exponer para DSbetaPass
+  window.DS = window.DS || {};
+  window.DS.courses = { setActiveCourse, buildFloating, closeGate };
 
   // ---- arranque ----
   window.addEventListener('load', ()=>{
@@ -3902,6 +4484,897 @@ var DSmaint = (function(){
 })();
 window.DSmaint=DSmaint;
 
+// ===== EXPORTAR DICTADO (PDF partitura + XML datos, en un ZIP) =====
+var DSexport = (function(){
+  const PASS='010513';
+  function open(){
+    if(!DICTADO){ alert('Genera un dictado antes de exportarlo.'); return; }
+    document.getElementById('exportErr').textContent='';
+    document.getElementById('exportPass').value='';
+    document.getElementById('exportModal').style.display='flex';
+    setTimeout(()=>{ const p=document.getElementById('exportPass'); if(p) p.focus(); },50);
+  }
+  function cancel(){ document.getElementById('exportModal').style.display='none'; }
+  function check(){
+    const val=document.getElementById('exportPass').value.trim();
+    if(val!==PASS){ document.getElementById('exportErr').textContent='Contraseña incorrecta.'; return; }
+    document.getElementById('exportModal').style.display='none';
+    run();
+  }
+
+  // etiqueta corta del curso para el nombre de archivo: ge3 -> "3Ge"
+  function courseTag(){
+    const id=window.DS_ACTIVE_COURSE||'';
+    const m=id.match(/^ge(\d)$/i); if(m) return m[1]+'Ge';
+    const g=id.match(/^gp(\d)$/i); if(g) return g[1]+'Gp';
+    return (id||'Dictado').toUpperCase();
+  }
+  // etiqueta legible del curso para el título: ge3 -> "3GE"
+  function courseLabel(){
+    const id=window.DS_ACTIVE_COURSE||'';
+    const m=id.match(/^ge(\d)$/i); if(m) return m[1]+'GE';
+    const g=id.match(/^gp(\d)$/i); if(g) return g[1]+'GP';
+    return id.toUpperCase();
+  }
+  function pad(n){ return (n<10?'0':'')+n; }
+  function fechaCorta(d){ return pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear(); }
+  function fechaLarga(d){
+    const meses=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    return d.getDate()+' de '+meses[d.getMonth()]+' de '+d.getFullYear();
+  }
+
+  // componer título + partitura en un canvas y devolver dataURL JPG
+  function buildJPG(cursoLbl, now){
+    return new Promise((resolve,reject)=>{
+      const panel=document.getElementById('dictScore');
+      const svg=panel && panel.querySelector('svg');
+      if(!svg){ reject(new Error('No hay partitura visible. Genera un dictado primero.')); return; }
+      const sw=svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width ? svg.viewBox.baseVal.width : (svg.width.baseVal.value||900);
+      const sh=svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.height ? svg.viewBox.baseVal.height : (svg.height.baseVal.value||300);
+      const clone=svg.cloneNode(true);
+      clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+      // quitar overlays del editor (recuadros de pulso, zonas clicables, selección) del export
+      [...clone.querySelectorAll('.ed-hit,.ed-pulse-hit,#edSelBox,.ed-pulse-dot')].forEach(e=>e.remove());
+      const xml=new XMLSerializer().serializeToString(clone);
+      const svg64='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(xml)));
+      const img=new Image();
+      img.onload=function(){
+        const scale=2.5;                       // resolución
+        const padX=24, titleH=58, gap=16, padBottom=20; // márgenes en px (coordenadas SVG)
+        const W=sw, H=titleH+gap+sh+padBottom;
+        const canvas=document.createElement('canvas');
+        canvas.width=Math.round(W*scale); canvas.height=Math.round(H*scale);
+        const ctx=canvas.getContext('2d');
+        ctx.scale(scale,scale);
+        // fondo blanco
+        ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
+        // título: "DIC" negrita + "TADO" fina + "  curso · generado el ..."
+        ctx.textBaseline='alphabetic'; ctx.fillStyle='#0a1028';
+        let x=padX; const baseY=38;
+        ctx.font='800 30px "Helvetica Neue",Arial,sans-serif'; ctx.fillText('DIC', x, baseY); x+=ctx.measureText('DIC').width;
+        ctx.font='300 30px "Helvetica Neue",Arial,sans-serif'; ctx.fillText('TADO', x, baseY); x+=ctx.measureText('TADO').width;
+        ctx.font='400 19px "Helvetica Neue",Arial,sans-serif'; ctx.fillStyle='#3a3f55';
+        ctx.fillText('  '+cursoLbl+'  ·  generado el '+fechaLarga(now), x, baseY-2);
+        // partitura debajo
+        ctx.drawImage(img, padX, titleH+gap, sw-padX*2, sh);
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      };
+      img.onerror=()=>reject(new Error('No se pudo procesar la partitura.'));
+      img.src=svg64;
+    });
+  }
+
+  function dataURLtoBlob(dataURL){
+    const parts=dataURL.split(','); const mime=parts[0].match(/:(.*?);/)[1];
+    const bin=atob(parts[1]); const len=bin.length; const arr=new Uint8Array(len);
+    for(let i=0;i<len;i++) arr[i]=bin.charCodeAt(i);
+    return new Blob([arr],{type:mime});
+  }
+
+  // XML simple propio con los datos del dictado
+  // ===== MusicXML 3.1 (abre en MuseScore 4) =====
+  // fifths por armadura
+  const FIFTHS={ 'C':0,'G':1,'D':2,'A':3,'E':4,'B':5,'F#':6,'F':-1,'Bb':-2,'Eb':-3,'Ab':-4,'Db':-5,'Gb':-6 };
+  const DIV=480; // divisions por negra
+  // duración nominal en NEGRAS por figura COMPLETA (incluye puntillo en la propia clave)
+  const NEG={ 'h':2,'hd':3,'q':1,'qd':1.5,'8':0.5,'8d':0.75,'16':0.25,'16d':0.375 };
+  // type MusicXML por figura base (sin puntillo)
+  const TYPE={ 'h':'half','q':'quarter','8':'eighth','16':'16th' };
+  function esc(s){ return (''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function midiToPitch(midi, vexKey){
+    const oct=Math.floor(midi/12)-1;
+    let step, alter=0;
+    if(vexKey){
+      const head=(''+vexKey).split('/')[0];   // "f#","eb","b"
+      step=head[0].toUpperCase();
+      const acc=head.slice(1);                  // alteración = lo que sigue a la letra
+      if(acc==='#') alter=1; else if(acc==='b') alter=-1;
+    } else {
+      const names=['C','C','D','D','E','F','F','G','G','A','A','B'];
+      const alt =[0,1,0,1,0,0,1,0,1,0,1,0];
+      const pc=((midi%12)+12)%12; step=names[pc]; alter=alt[pc];
+    }
+    return {step, alter, octave:oct};
+  }
+  function buildMusicXML(curso, fechaTxt){
+    const D=DICTADO;
+    const [beats,beatType]=(D.ts||'2/4').split('/').map(x=>parseInt(x,10));
+    const fifths=FIFTHS[D.keySig!=null?D.keySig:'C']||0;
+    const mode=(D.mode==='minor')?'minor':'major';
+    let xml='<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml+='<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n';
+    xml+='<score-partwise version="3.1">\n';
+    xml+='  <work><work-title>Dictado '+esc(curso)+' · '+esc(fechaTxt)+'</work-title></work>\n';
+    xml+='  <part-list><score-part id="P1"><part-name>Dictado</part-name></score-part></part-list>\n';
+    xml+='  <part id="P1">\n';
+    (D.measures||[]).forEach((m,mi)=>{
+      xml+='    <measure number="'+(mi+1)+'">\n';
+      if(mi===0){
+        xml+='      <attributes>\n';
+        xml+='        <divisions>'+DIV+'</divisions>\n';
+        xml+='        <key><fifths>'+fifths+'</fifths><mode>'+mode+'</mode></key>\n';
+        xml+='        <time><beats>'+beats+'</beats><beat-type>'+beatType+'</beat-type></time>\n';
+        if(D.clef==='bass'){
+          xml+='        <clef><sign>F</sign><line>4</line></clef>\n';
+        } else {
+          xml+='        <clef><sign>G</sign><line>2</line></clef>\n';
+        }
+        xml+='      </attributes>\n';
+      }
+      const tf=new Array(m.notes.length).fill(null);
+      (m._tuplets||[]).forEach(tp=>{ for(let q=tp.start;q<tp.start+(tp.def?tp.def.first:3);q++){ if(q<tf.length) tf[q]=tp.def||{num:3,notes:2,first:3}; } });
+      m.notes.forEach((n,qi)=>{
+        const dRaw=n.d||'q';
+        const cleanKey=dRaw.replace('r','');           // p.ej. 'qd','8','16'
+        const base=cleanKey.replace('d','');           // figura sin puntillo: 'q','8','16','h'
+        const isRest=dRaw.includes('r');
+        const dotted=cleanKey.includes('d');
+        let negras=(n.dur==='full')? beats*(4/beatType) : (NEG[cleanKey]!=null?NEG[cleanKey]:1);
+        const tup=tf[qi];
+        if(tup) negras=negras*(tup.notes/tup.num);
+        const duration=Math.round(negras*DIV);
+        const type=TYPE[base]||'quarter';
+        xml+='      <note>\n';
+        if(isRest){ xml+='        <rest/>\n'; }
+        else {
+          const p=midiToPitch(n.midi, n.k);
+          xml+='        <pitch><step>'+p.step+'</step>'+(p.alter?'<alter>'+p.alter+'</alter>':'')+'<octave>'+p.octave+'</octave></pitch>\n';
+        }
+        xml+='        <duration>'+duration+'</duration>\n';
+        xml+='        <voice>1</voice>\n';
+        xml+='        <type>'+type+'</type>\n';
+        if(dotted) xml+='        <dot/>\n';
+        if(tup){ xml+='        <time-modification><actual-notes>'+tup.num+'</actual-notes><normal-notes>'+tup.notes+'</normal-notes></time-modification>\n'; }
+        if(tup){
+          const tstart=(m._tuplets||[]).find(t=>t.start===qi);
+          const tend=(m._tuplets||[]).find(t=>(t.start+(t.def?t.def.first:3)-1)===qi);
+          if(tstart) xml+='        <notations><tuplet type="start" bracket="yes"/></notations>\n';
+          else if(tend) xml+='        <notations><tuplet type="stop"/></notations>\n';
+        }
+        xml+='      </note>\n';
+      });
+      xml+='    </measure>\n';
+    });
+    xml+='  </part>\n</score-partwise>\n';
+    return xml;
+  }
+
+  async function run(){
+    try{
+      if(!window.JSZip){ alert('No se pudo cargar la librería de exportación. Revisa la conexión.'); return; }
+      const now=new Date();
+      const cursoLbl=courseLabel();
+      const fechaC=fechaCorta(now);
+      const baseName='Dictado'+courseTag()+fechaC;   // p.ej. Dictado3Ge25.03.2026
+
+      // 1) imagen JPG: título + partitura, recortada al contenido
+      const jpgDataURL=await buildJPG(cursoLbl, now);
+      const jpgBlob=dataURLtoBlob(jpgDataURL);
+
+      // 2) MusicXML con los datos (abre en MuseScore 4)
+      const xml=buildMusicXML(cursoLbl, fechaLarga(now));
+
+      // 3) ZIP
+      const zip=new window.JSZip();
+      zip.file(baseName+'.jpg', jpgBlob);
+      zip.file(baseName+'.xml', xml);
+      const blob=await zip.generateAsync({type:'blob'});
+
+      // descargar
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=baseName+'.zip';
+      document.body.appendChild(a); a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    }catch(err){
+      alert('No se pudo exportar: '+(err && err.message ? err.message : err));
+    }
+  }
+
+  return { open, check, cancel, run };
+})();
+window.DSexport=DSexport;
+
+// ===== MINI-EDITOR (alturas + enarmonía + ritmo) =====
+var DSedit = (function(){
+  const PASS='010513';
+  let on=false;          // modo edición activo
+  let mode=null;         // 'alturas' | 'ritmo'
+  let sel=null;          // nota seleccionada en modo alturas: {measIdx, noteIdx}
+  let useFlatsForEnh=false;
+
+  function isPunt(){ const D=DSgen.getDictado(); return !!(D&&D.pulseFig==='qd'); }
+
+  function open(){
+    // "Registrar nuevo dictado": si no hay dictado en pantalla, generamos uno de partida con el motor.
+    let D=DSgen.getDictado();
+    if(!D){ D=DSgen.genFromMotor(); }
+    document.getElementById('editErr').textContent='';
+    document.getElementById('editPass').value='';
+    document.getElementById('editModal').style.display='flex';
+    setTimeout(()=>{ const p=document.getElementById('editPass'); if(p) p.focus(); },50);
+  }
+  function cancel(){ document.getElementById('editModal').style.display='none'; }
+  function check(){
+    const val=document.getElementById('editPass').value.trim();
+    if(val!==PASS){ document.getElementById('editErr').textContent='Contraseña incorrecta.'; return; }
+    document.getElementById('editModal').style.display='none';
+    enter();
+  }
+
+  let originalSnapshot=null;   // copia del dictado ANTES de editar (para el informe de entrenamiento)
+  let _editingId=null;         // id Supabase (sb_N) del dictado que se está editando; null = nuevo
+  function enter(){
+    on=true; mode=null; sel=null;
+    _editingId=null;   // por defecto, editar = dictado nuevo (doEdit lo cambia después si procede)
+    const hn=document.getElementById('hybridNote'); if(hn) hn.style.display='none';
+    const D=DSgen.getDictado();
+    try{ originalSnapshot = D? JSON.parse(JSON.stringify({ name:D.name, ts:D.ts, pulseFig:D.pulseFig, beatsPerBar:D.beatsPerBar, measures:D.measures })) : null; }catch(e){ originalSnapshot=null; }
+    DSgen.revealAll();                 // mostrar el dictado completo para poder editar
+    document.getElementById('editBar').style.display='flex';
+    updateCount();
+    setMode('alturas');
+  }
+  // contador de dictados registrados en la biblioteca, del curso activo (solo visible en el editor)
+  function updateCount(){
+    const el=document.getElementById('edCount'); if(!el) return;
+    const curso=window.DS_ACTIVE_COURSE||null;
+    const lib=(typeof DICTADOS!=='undefined')?DICTADOS:[];
+    const n = curso ? lib.filter(d=>d.curso===curso).length : lib.length;
+    const lbl = curso ? cursoLabel(curso) : 'biblioteca';
+    el.textContent='Registrados '+lbl+': '+n;
+  }
+  // genera un nuevo dictado aleatorio de partida SIN salir del modo edición
+  function rollNew(){
+    setEditingId(null);   // nuevo dictado generado: ya no edita uno existente
+    DSgen.genFromMotor();
+    on=true;
+    DSgen.revealAll();
+    document.getElementById('editBar').style.display='flex';
+    updateCount();
+    setMode('alturas');
+  }
+  // vuelca el dictado actual a texto (para pasarlo a Claude / Supabase), incluyendo el curso activo
+  // REGISTRAR DICTADO: guarda el dictado actual en Supabase (curso + fecha + JSON) y muestra
+  // un banner de confirmación SIN recargar la pantalla (para poder seguir registrando o editando).
+  async function registrarNow(){
+    const D=DSgen.getDictado();
+    if(!D){ alert('No hay dictado para registrar.'); return; }
+    if(_editingId){
+      // EDICIÓN: pedir confirmación antes de reemplazar
+      const rowId=String(_editingId).replace('sb_','');
+      const txt=document.getElementById('replaceText');
+      if(txt) txt.textContent='Vas a sobrescribir el dictado #'+rowId+' guardado con la versión que has editado. Esta acción no se puede deshacer.';
+      document.getElementById('replaceModal').classList.add('show');
+      return;
+    }
+    // NUEVO: insertar directamente
+    await doRegisterNew();
+  }
+  async function doRegisterNew(){
+    const D=DSgen.getDictado();
+    const curso = window.DS_ACTIVE_COURSE || '(sin curso)';
+    const fecha = new Date().toISOString().slice(0,10);
+    showBanner('Registrando…', 'wait');
+    try{
+      await registrarDictadoEnSupabase(curso, fecha, D);
+      updateCount();
+      showBanner('✓ Dictado registrado en '+cursoLabel(curso)+' · biblioteca: '+DICTADOS.length, 'ok');
+    }catch(e){
+      showBanner('✗ No se pudo registrar: '+e.message, 'err');
+    }
+  }
+  function cancelReplace(){ document.getElementById('replaceModal').classList.remove('show'); }
+  async function confirmReplace(){
+    document.getElementById('replaceModal').classList.remove('show');
+    const D=DSgen.getDictado();
+    if(!D || !_editingId){ showBanner('✗ No hay dictado en edición.', 'err'); return; }
+    const curso = window.DS_ACTIVE_COURSE || '(sin curso)';
+    const fecha = new Date().toISOString().slice(0,10);
+    const rowId=String(_editingId).replace('sb_','');
+    showBanner('Guardando cambios…', 'wait');
+    try{
+      await actualizarDictadoEnSupabase(rowId, curso, fecha, D);
+      updateCount();
+      showBanner('✓ Dictado #'+rowId+' reemplazado · biblioteca: '+DICTADOS.length, 'ok');
+      setEditingId(null);   // tras guardar, deja de estar en modo edición
+    }catch(e){
+      showBanner('✗ No se pudo reemplazar: '+e.message, 'err');
+    }
+  }
+  // marca que el editor está editando un dictado existente (para que Registrar reemplace)
+  function setEditingId(id){
+    _editingId=id||null;
+    // reflejar en el botón Registrar si estamos editando o creando
+    const btns=document.querySelectorAll('#editBar .edit-done');
+    btns.forEach(b=>{
+      if(_editingId){ const rid=String(_editingId).replace('sb_',''); b.textContent='Guardar cambios (#'+rid+')'; }
+      else b.textContent='Registrar dictado';
+    });
+  }
+  // etiqueta legible del curso (ge3 -> 3º GE)
+  function cursoLabel(id){
+    const m=(id||'').match(/^ge(\d)$/i); if(m) return m[1]+'º GE';
+    const g=(id||'').match(/^gp(\d)$/i); if(g) return g[1]+'º GP';
+    return id||'';
+  }
+  // banner flotante de confirmación (no recarga la pantalla)
+  let bannerTimer=null;
+  function showBanner(msg, kind){
+    let b=document.getElementById('regBanner');
+    if(!b){ b=document.createElement('div'); b.id='regBanner'; b.className='reg-banner'; document.body.appendChild(b); }
+    b.textContent=msg;
+    b.className='reg-banner show '+(kind||'');
+    if(bannerTimer) clearTimeout(bannerTimer);
+    if(kind!=='wait'){ bannerTimer=setTimeout(()=>{ b.className='reg-banner'; }, 3500); }
+  }
+  function exit(){
+    on=false; mode=null; sel=null;
+    clearOverlays();
+    document.getElementById('editBar').style.display='none';
+    const hn=document.getElementById('hybridNote'); if(hn) hn.style.display='';
+  }
+
+  function setMode(m){
+    mode=m; sel=null;
+    document.getElementById('edBtnAlt').classList.toggle('on', m==='alturas');
+    document.getElementById('edBtnRit').classList.toggle('on', m==='ritmo');
+    document.getElementById('edBtnEnh').style.display = (m==='alturas')?'inline-flex':'none';
+    const hint=document.getElementById('edHint');
+    if(hint) hint.textContent='';   // sin texto: deja espacio para los botones
+    clearOverlays();
+    DSgen.redraw();              // recrea las notas -> elimina handlers/colores de hover del modo anterior
+    if(m==='alturas') armPitchMode();
+    else if(m==='ritmo') armRhythmMode();
+  }
+
+  function clearOverlays(){
+    const host=document.getElementById('dictScore');
+    if(!host) return;
+    [...host.querySelectorAll('.ed-hit,.ed-pulse-hit')].forEach(e=>e.remove());
+    const sb=document.getElementById('edSelBox'); if(sb) sb.style.display='none';
+  }
+
+  // ---- MODO ALTURAS ----
+  function armPitchMode(){
+    initMidiOnce();
+    const notes=window.DS_EDIT_NOTES||[];
+    const host=document.getElementById('dictScore');
+    const svg=host && host.querySelector('svg'); if(!svg) return;
+    notes.forEach((rec,i)=>{
+      if(!rec.el || rec.rest) return;
+      try{
+        const bb=rec.el.getBBox();
+        const hit=document.createElementNS('http://www.w3.org/2000/svg','rect');
+        hit.setAttribute('class','ed-hit');
+        hit.setAttribute('x',bb.x-2); hit.setAttribute('y',bb.y-2);
+        hit.setAttribute('width',bb.width+4); hit.setAttribute('height',bb.height+4);
+        hit.setAttribute('fill','rgba(0,0,0,0)'); hit.style.cursor='pointer';
+        hit.addEventListener('click',(e)=>{ e.stopPropagation(); selectNote(rec); });
+        rec.el.parentNode.appendChild(hit);
+      }catch(e){}
+    });
+    // Autoselect: si no hay ninguna nota seleccionada, seleccionar la primera
+    if(!sel){
+      const first=(window.DS_EDIT_NOTES||[]).find(r=>!r.rest);
+      if(first) setTimeout(()=>{ if(!sel) selectNote(first); }, 50);
+    }
+  }
+  function selectNote(rec){
+    sel={ measIdx:rec.measIdx, noteIdx:rec.noteIdx };
+    drawSelBox(rec);
+    const D=DSgen.getDictado(); const n=D.measures[rec.measIdx].notes[rec.noteIdx];
+    if(n && n.midi!=null) DSgen.playOne(n.midi);
+  }
+  // igual que selectNote pero sin reproducir audio (para avance desde MIDI)
+  function selectNoteSilent(rec){
+    sel={ measIdx:rec.measIdx, noteIdx:rec.noteIdx };
+    drawSelBox(rec);
+  }
+  function drawSelBox(rec){
+    const host=document.getElementById('dictScore');
+    const svg=host && host.querySelector('svg'); if(!svg||!rec.el) return;
+    let box=svg.querySelector('#edSelBox');
+    if(!box){ box=document.createElementNS('http://www.w3.org/2000/svg','rect'); box.setAttribute('id','edSelBox'); svg.appendChild(box); }
+    try{
+      const bb=rec.el.getBBox();
+      box.setAttribute('x',bb.x-3); box.setAttribute('y',bb.y-3);
+      box.setAttribute('width',bb.width+6); box.setAttribute('height',bb.height+6);
+      box.setAttribute('rx','4'); box.setAttribute('fill','rgba(91,157,255,.18)'); box.setAttribute('stroke','#5b9dff'); box.setAttribute('stroke-width','1.5');
+      box.style.display='block';
+    }catch(e){}
+  }
+  // mover la nota seleccionada ±1 semitono
+  function nudge(delta){
+    if(!sel) return;
+    const D=DSgen.getDictado(); const n=D.measures[sel.measIdx].notes[sel.noteIdx];
+    if(!n || n.midi==null) return;
+    let m=n.midi+delta;
+    if(m<24) m=24; if(m>96) m=96;     // rango amplio (Do1..Do7) para poder editar notas muy graves o agudas
+    n.midi=m;
+    const vk=midiToVexKey(m, false, D.keySig);   // grafía según la tonalidad del dictado
+    n.k=vk.key;
+    n.alt = accOfKey(vk.key);
+    const ms=sel.measIdx, ni=sel.noteIdx;
+    DSgen.redraw();
+    // reseleccionar tras el redraw
+    reselect(ms,ni);
+    DSgen.playOne(m);
+  }
+  // enarmonía: reescribe la grafía sin cambiar la altura
+  function enharmonic(){
+    if(!sel) return;
+    const D=DSgen.getDictado(); const n=D.measures[sel.measIdx].notes[sel.noteIdx];
+    if(!n || n.midi==null) return;
+    // Calcular las dos grafías posibles para este midi: con sostenido y con bemol.
+    const sharp = midiToVexKey(n.midi, false);   // p.ej. 'g#/4'
+    const flat  = midiToVexKey(n.midi, true);    // p.ej. 'ab/4'
+    if(sharp===flat){
+      // nota natural (do, re, mi, fa, sol, la, si): no tiene enarmónico simple de un paso.
+      // Avisar suavemente y no hacer nada (no rompemos nada).
+      try{ showBanner('Esta nota no tiene enarmonía con ♯/♭ (es natural).', 'wait'); }catch(e){}
+      return;
+    }
+    // alternar entre las dos grafías según la actual
+    const current = n.k;
+    const next = (current===sharp) ? flat : sharp;
+    n.k = next;
+    n.alt = accOfKey(next);
+    n._enhForced = true;   // marcar que el usuario forzó la grafía (para que el render la respete)
+    const ms=sel.measIdx, ni=sel.noteIdx;
+    DSgen.redraw(); reselect(ms,ni);
+  }
+  function reselect(ms,ni){
+    if(!on||mode!=='alturas') return;
+    const rec=(window.DS_EDIT_NOTES||[]).find(r=>r.measIdx===ms && r.noteIdx===ni);
+    if(rec){ sel={measIdx:ms,noteIdx:ni}; drawSelBox(rec); }
+  }
+
+  // ---- MODO RITMO ----
+  function armRhythmMode(){
+    const D=DSgen.getDictado(); if(!D) return;
+    const host=document.getElementById('dictScore');
+    const svg=host && host.querySelector('svg'); if(!svg) return;
+    const notes=window.DS_EDIT_NOTES||[];
+    const PB=isPunt()?1.5:1;
+    const DB={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+
+    // bbox de una nota dibujada
+    function bboxOf(rec){ if(!rec||!rec.el) return null; try{ return rec.el.getBBox(); }catch(e){ return null; } }
+    // límites verticales de cada sistema (para que el recuadro no invada el otro pentagrama)
+    function sysBand(yCenter){
+      // dos sistemas; tomamos una banda generosa alrededor de la y de las notas del pulso
+      return { y: yCenter-34, h: 68 };
+    }
+
+    D.measures.forEach((meas,mi)=>{
+      let acc=0; const starts=[], durP=[];
+      const tf=new Array(meas.notes.length).fill(1);
+      (meas._tuplets||[]).forEach(tp=>{ const f=tp.def?(tp.def.notes/tp.def.num):(2/3); for(let q=tp.start;q<tp.start+(tp.def?tp.def.first:3);q++){ if(q<tf.length) tf[q]=f; } });
+      meas.notes.forEach((n,qi)=>{ const dN=(n.dur==='full'? D.beatsPerBar*PB : (DB[(n.d||'').replace('r','')]||1)*tf[qi]); starts.push(acc); durP.push(dN/PB); acc+=dN; });
+
+      // índices por pulso
+      const pulseIdxs=[];
+      for(let p=0;p<D.beatsPerBar;p++){
+        const idxs=[]; meas.notes.forEach((n,qi)=>{ if(starts[qi]>=p*PB-1e-9 && starts[qi]<(p+1)*PB-1e-9) idxs.push(qi); });
+        pulseIdxs.push(idxs);
+      }
+      function firstXof(p){ const idxs=pulseIdxs[p]; if(!idxs||!idxs.length) return null; const b=bboxOf(notes.find(r=>r.measIdx===mi&&r.noteIdx===idxs[0])); return b?b.x:null; }
+
+      for(let p=0;p<D.beatsPerBar;p++){
+        const idxs=pulseIdxs[p]; if(!idxs||!idxs.length) continue;
+        // bloquear pulsos con figuras de más de 1 pulso (blancas, síncopas a caballo, etc.)
+        const sumP=idxs.reduce((s,qi)=>s+durP[qi],0);
+        const anyLong=idxs.some(qi=>durP[qi]>1+1e-9);
+        if(anyLong || sumP>1+1e-9) continue;
+        const recs=idxs.map(qi=>notes.find(r=>r.measIdx===mi && r.noteIdx===qi)).filter(r=>r&&r.el);
+        if(!recs.length) continue;
+        // límites del recuadro: de la 1ª nota del pulso al inicio del pulso siguiente (o fin de las notas)
+        let x0=Infinity, x1=-Infinity, yMin=Infinity, yMax=-Infinity;
+        recs.forEach(r=>{ const b=bboxOf(r); if(!b) return; x0=Math.min(x0,b.x); x1=Math.max(x1,b.x+b.width); yMin=Math.min(yMin,b.y); yMax=Math.max(yMax,b.y+b.height); });
+        if(!isFinite(x0)) continue;
+        // borde derecho hasta el inicio del siguiente pulso con notas
+        let xNext=null;
+        for(let q=p+1;q<D.beatsPerBar;q++){ const xs=firstXof(q); if(xs!=null){ xNext=xs; break; } }
+        const right = (xNext!=null)? xNext-2 : x1+6;
+        const left = x0-6;
+        const yc=(yMin+yMax)/2;
+        const band=sysBand(yc);
+        const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+        rect.setAttribute('class','ed-pulse-hit');
+        rect.setAttribute('x',left.toFixed(1)); rect.setAttribute('y',band.y.toFixed(1));
+        rect.setAttribute('width',Math.max(12,right-left).toFixed(1)); rect.setAttribute('height',band.h.toFixed(1));
+        rect.setAttribute('rx','6');
+        rect.setAttribute('fill','rgba(34,201,138,.12)');
+        rect.setAttribute('stroke','transparent');
+        rect.style.cursor='pointer'; rect.style.transition='fill .12s';
+        rect.addEventListener('mouseenter',()=>rect.setAttribute('fill','rgba(34,201,138,.26)'));
+        rect.addEventListener('mouseleave',()=>rect.setAttribute('fill','rgba(34,201,138,.12)'));
+        rect.addEventListener('click',(e)=>{ e.stopPropagation(); openCellPicker(mi,p,idxs); });
+        svg.appendChild(rect);
+      }
+    });
+  }
+
+  // sustituir el pulso (mi, p) por una célula nueva, manteniendo alturas existentes
+  function applyCell(mi, p, idxs, cell){
+   try{
+    const D=DSgen.getDictado();
+    const meas=D.measures[mi];
+    const oldNotes=idxs.map(qi=>meas.notes[qi]);  // notas que había en el pulso
+    // construir las notas nuevas a partir de la célula
+    const useFlats=['F','Bb','Dm','Gm'].includes(D.key);
+    const newNotes=cell.notes.map((tok,k)=>{
+      const d=(typeof tok==='object')? tok.d : tok;
+      const isRest=(''+d).includes('r');
+      if(isRest) return { rest:true, d:d };
+      // altura: reutilizar la de la antigua en misma posición; si no hay, neutra (Si4=71)
+      const src=oldNotes[k] && !oldNotes[k].rest ? oldNotes[k] : null;
+      const midi = src? src.midi : 71;            // 71 = Si4 (3ª línea, neutra)
+      const vk=midiToVexKey(midi, false, D.keySig);   // grafía según la tonalidad
+      return { k:vk.key, midi, d:d, alt:accOfKey(vk.key) };
+    });
+    // reemplazar en el array de notas del compás
+    const first=idxs[0], count=idxs.length;
+    meas.notes.splice(first, count, ...newNotes);
+    // tuplets: quitar los que tocaban este pulso, reindexar posteriores, añadir el de la célula
+    meas._tuplets = (meas._tuplets||[]).filter(tp=> !(tp.start>=first && tp.start<first+count));
+    const delta=newNotes.length-count;
+    meas._tuplets.forEach(tp=>{ if(tp.start>=first+count) tp.start+=delta; });
+    if(cell.tuplet){
+      meas._tuplets.push({ start:first, def:{ first:cell.tuplet.first, num:cell.tuplet.num, notes:cell.tuplet.notes } });
+    }
+    closeCellPicker();
+    DSgen.redraw();
+    // re-armar los marcadores de pulso tras el redibujado (espera a que el SVG esté listo)
+    if(on && mode==='ritmo'){ setTimeout(()=>{ try{ armRhythmMode(); }catch(e){} }, 30); }
+   }catch(err){
+    alert('No se pudo aplicar la célula: '+(err&&err.message?err.message:err));
+   }
+  }
+
+  // selector de células de 1 pulso compatibles con el compás actual
+  let pickerCtx=null;
+  function openCellPicker(mi,p,idxs){
+    const D=DSgen.getDictado();
+    const block = (D.ts==='6/8'||D.ts==='3/8'||D.ts==='9/8') ? 'ternario' : 'binario';
+    const cat = window.DS && window.DS.catalog;
+    const CELLS = cat? cat.CELLS : [];
+    const cells = CELLS.filter(c=> c.pulses===1 && c.block===block && !(c.onlyTS && c.onlyTS!==D.ts) && !(c.notTS && c.notTS===D.ts));
+    pickerCtx={mi,p,idxs};
+    const grid=document.getElementById('cellPickGrid');
+    grid.innerHTML='';
+    cells.forEach(c=>{
+      const b=document.createElement('button');
+      b.className='cellpick-item';
+      const holder=document.createElement('div'); holder.className='cp-vex';
+      b.appendChild(holder);
+      b.onclick=()=>applyCell(mi,p,idxs,c);
+      grid.appendChild(b);
+      // render diferido para que el contenedor tenga tamaño
+      setTimeout(()=>renderCellPreview(holder, c, D.ts), 0);
+    });
+    document.getElementById('cellPickModal').style.display='flex';
+  }
+
+  // dibuja la grafía de una célula de 1 pulso, SIN cabezas (solo plicas/corchetes/silencios)
+  function renderCellPreview(holder, cell, ts){
+    try{
+      const VF=Vex.Flow;
+      const W=140, H=70;
+      const renderer=new VF.Renderer(holder, VF.Renderer.Backends.SVG);
+      renderer.resize(W,H);
+      const ctx=renderer.getContext();
+      const stave=new VF.Stave(2, 6, W-4);
+      // pentagrama invisible: sin líneas (config_lines a 0) ni bordes
+      try{ stave.setConfigForLines([{visible:false},{visible:false},{visible:false},{visible:false},{visible:false}]); }catch(e){}
+      stave.setContext(ctx).draw();
+      const notes=cell.notes.map(tok=>{
+        const d=(typeof tok==='object')? tok.d : tok;
+        const isRest=(''+d).includes('r');
+        const base=(''+d).replace('r','').replace('d','');
+        const sn=new VF.StaveNote({keys:['b/4'], duration: base+(isRest?'r':''), stem_direction:1});
+        if((''+d).includes('d')) sn.addModifier(new VF.Dot(),0);  // puntillo también en silencios
+        if(!isRest){ try{ sn.setKeyStyle(0,{fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }catch(e){} } // sin cabeza
+        return {sn, d, isRest, base};
+      });
+      let beams=[], run=[];
+      const flush=()=>{ if(run.length>=2) beams.push(new VF.Beam(run.map(o=>o.sn))); run=[]; };
+      notes.forEach(o=>{ if((o.base==='8'||o.base==='16')&&!o.isRest){ run.push(o); } else flush(); });
+      flush();
+      let tuplet=null;
+      if(cell.tuplet){ tuplet=new VF.Tuplet(notes.map(o=>o.sn),{num_notes:cell.tuplet.num, notes_occupied:cell.tuplet.notes, bracketed:true, ratioed:false}); }
+      const voice=new VF.Voice({num_beats:4, beat_value:4}).setMode(VF.Voice.Mode.SOFT);
+      voice.addTickables(notes.map(o=>o.sn));
+      new VF.Formatter().joinVoices([voice]).format([voice], W-30);
+      voice.draw(ctx, stave);
+      beams.forEach(bm=>bm.setContext(ctx).draw());
+      if(tuplet) tuplet.setContext(ctx).draw();
+    }catch(e){ holder.textContent='?'; }
+  }
+  function closeCellPicker(){ document.getElementById('cellPickModal').style.display='none'; pickerCtx=null; }
+
+  // navegar a la nota anterior/siguiente (orden de lectura: por compás y posición)
+  function moveSel(dir){
+    const list=(window.DS_EDIT_NOTES||[]).filter(r=>!r.rest);
+    if(!list.length) return;
+    if(!sel){ selectNote(list[0]); return; }
+    let idx=list.findIndex(r=>r.measIdx===sel.measIdx && r.noteIdx===sel.noteIdx);
+    if(idx<0) idx=0;
+    idx+=dir;
+    if(idx<0) idx=0; if(idx>=list.length) idx=list.length-1;
+    selectNote(list[idx]);
+  }
+  // igual que moveSel pero sin reproducir audio (para uso desde MIDI)
+  function moveSelSilent(dir){
+    const list=(window.DS_EDIT_NOTES||[]).filter(r=>!r.rest);
+    if(!list.length) return;
+    if(!sel){ selectNoteSilent(list[0]); return; }
+    let idx=list.findIndex(r=>r.measIdx===sel.measIdx && r.noteIdx===sel.noteIdx);
+    if(idx<0) idx=0;
+    idx+=dir;
+    if(idx<0) idx=0; if(idx>=list.length) idx=list.length-1;
+    selectNoteSilent(list[idx]);
+  }
+
+  // reproducir el dictado completo desde el editor (sin cuenta atrás, sin gastar escuchas)
+  function playDictado(){
+    if(!on) return;
+    try{ if(window.DSgen) window.DSgen.playEditor(); }
+    catch(e){ console.warn('playDictado:', e); }
+  }
+
+  // teclado: flechas para alturas (↑/↓ semitono, ←/→ navegar) + atajos A/E/R/Espacio
+  if(typeof document!=='undefined' && document.addEventListener){
+    document.addEventListener('keydown',(e)=>{
+      if(!on) return;
+      const tgt=e.target;
+      const isField = tgt && tgt.matches && tgt.matches('input,textarea,select,[contenteditable]');
+      // Espacio: play/stop (independiente del modo). e.code es más fiable que e.key.
+      if((e.code==='Space' || e.key===' ' || e.key==='Spacebar') && !isField){
+        e.preventDefault(); e.stopPropagation(); playDictado(); return;
+      }
+      // A / E / R: solo cuando el foco no está en un input de texto
+      if(!e.target.matches('input,textarea,select')){
+        if(e.key==='a'||e.key==='A'){ e.preventDefault(); setMode('alturas'); return; }
+        if(e.key==='e'||e.key==='E'){ e.preventDefault(); enharmonic(); return; }
+        if(e.key==='r'||e.key==='R'){ e.preventDefault(); setMode('ritmo'); return; }
+      }
+      if(mode!=='alturas') return;
+      if(e.key==='ArrowUp'){ if(!sel) return; e.preventDefault(); nudge(+1); }
+      else if(e.key==='ArrowDown'){ if(!sel) return; e.preventDefault(); nudge(-1); }
+      else if(e.key==='ArrowRight'){ e.preventDefault(); moveSel(+1); }
+      else if(e.key==='ArrowLeft'){ e.preventDefault(); moveSel(-1); }
+    });
+  }
+
+  // ===== MIDI INPUT (teclado físico) =====
+  // noteOn -> aplica el pitch a la nota seleccionada, la reproduce y avanza a la siguiente.
+  // Si la nota cae fuera del rango seguro (midi 48-84) ajusta la octava.
+  let midiAccess = null;
+  let midiListeners = [];
+
+  function midiPitchInRange(midi){
+    // rango amplio para el teclado MIDI: solo reajustamos octava si se sale de Do1..Do7
+    while(midi < 24) midi += 12;
+    while(midi > 96) midi -= 12;
+    return midi;
+  }
+
+  function onMidiMessage(ev){
+    if(!on || mode !== 'alturas') return;
+    const [status, note, vel] = ev.data;
+    const isNoteOn = (status & 0xf0) === 0x90 && vel > 0;
+    if(!isNoteOn) return;
+    const midi = midiPitchInRange(note);
+    const list = (window.DS_EDIT_NOTES || []).filter(r => !r.rest);
+    if(!list.length) return;
+    if(!sel){ selectNote(list[0]); }
+    const D = DSgen.getDictado();
+    if(!D || !sel) return;
+    const n = D.measures[sel.measIdx].notes[sel.noteIdx];
+    if(!n || n.midi == null) return;
+    n.midi = midi;
+    const vk = midiToVexKey(midi, false, D.keySig);
+    n.k = vk.key;
+    n.alt = accOfKey(vk.key);
+    const ms = sel.measIdx, ni = sel.noteIdx;
+    DSgen.redraw();
+    reselect(ms, ni);
+    DSgen.playOne(midi);   // reproducir la nota ingresada
+    // Avanzar en silencio (sin que suene la siguiente)
+    setTimeout(() => { moveSelSilent(+1); }, 80);
+  }
+
+  function bindMidiPorts(){
+    midiListeners.forEach(([port, fn]) => { try{ port.removeEventListener('midimessage', fn); }catch(e){} });
+    midiListeners = [];
+    if(!midiAccess) return;
+    midiAccess.inputs.forEach(input => {
+      input.addEventListener('midimessage', onMidiMessage);
+      midiListeners.push([input, onMidiMessage]);
+    });
+  }
+
+  let midiInited = false;
+  function initMidiOnce(){
+    if(midiInited) return;
+    midiInited = true;
+    const statusEl = document.getElementById('midiStatus');
+    if(!navigator.requestMIDIAccess){
+      if(statusEl){ statusEl.style.display='inline-block'; statusEl.textContent='🎹 sin soporte'; statusEl.style.color='#ff5c72'; }
+      return;
+    }
+    navigator.requestMIDIAccess().then(access => {
+      midiAccess = access;
+      bindMidiPorts();
+      access.onstatechange = () => {
+        bindMidiPorts();
+        if(statusEl){
+          const n = access.inputs.size;
+          statusEl.textContent = n > 0 ? '🎹 MIDI ('+n+')' : '🎹 sin dispositivo';
+          statusEl.style.color = n > 0 ? '#22c98a' : '#e08537';
+        }
+      };
+      if(statusEl){
+        const n = access.inputs.size;
+        statusEl.style.display = 'inline-block';
+        statusEl.textContent = n > 0 ? '🎹 MIDI ('+n+')' : '🎹 sin dispositivo';
+        statusEl.style.color = n > 0 ? '#22c98a' : '#e08537';
+        statusEl.style.background = n > 0 ? 'rgba(34,201,138,.15)' : 'rgba(224,133,55,.12)';
+        statusEl.style.borderColor = n > 0 ? 'rgba(34,201,138,.3)' : 'rgba(224,133,55,.3)';
+      }
+    }).catch(() => {
+      if(statusEl){ statusEl.style.display='inline-block'; statusEl.textContent='🎹 denegado'; statusEl.style.color='#ff5c72'; statusEl.style.background='rgba(255,92,114,.12)'; statusEl.style.borderColor='rgba(255,92,114,.3)'; }
+    });
+  }
+
+  // ===== EXPORTAR directamente desde el editor (sin volver a pedir contraseña) =====
+  function exportNow(){
+    exit();                       // salir del modo edición (oculta la barra)
+    try{ DSexport.run(); }        // generar el ZIP directamente
+    catch(e){ alert('No se pudo exportar: '+(e&&e.message?e.message:e)); }
+  }
+
+  // ===== INFORME DE ENTRENAMIENTO: dictado original vs editado + justificación =====
+  // nombre legible de una nota a partir de su midi (Do4 = 60)
+  function midiName(midi){
+    if(midi==null) return '—';
+    const N=['Do','Do#','Re','Re#','Mi','Fa','Fa#','Sol','Sol#','La','La#','Si'];
+    const oct=Math.floor(midi/12)-1;
+    return N[((midi%12)+12)%12]+oct;
+  }
+  function barToText(m){
+    if(!m||!m.notes) return '';
+    return m.notes.map(n=>{
+      const dur=n.d||'';
+      if((n.d||'').includes('r')||n.rest) return dur;                 // silencio: solo la figura
+      return dur+'·'+midiName(n.midi);                                // figura·altura
+    }).join(' ') + ((m._tuplets&&m._tuplets.length)?'  ['+m._tuplets.map(t=>t.def?(t.def.num+':'+t.def.notes):'tup').join(',')+']':'');
+  }
+  function trainingReport(){
+    const D=DSgen.getDictado();
+    if(!D){ alert('No hay dictado que informar.'); return; }
+    const courseId = window.DS_ACTIVE_COURSE || '—';
+    const courseLbl = (window.DS_COURSE_LABEL) || courseId;
+    // pedir justificación (opcional)
+    const justif = window.prompt('Justificación (opcional): ¿por qué hiciste estos cambios? Pensando en el nivel de '+courseLbl, '') || '';
+    const L=[];
+    L.push('===== INFORME DE ENTRENAMIENTO · DICTADO at home =====');
+    L.push('Curso (contexto de las decisiones): '+courseLbl+' ['+courseId+']');
+    L.push('Tonalidad: '+D.name+' · Compás: '+D.ts+' · Generado para: '+courseLbl);
+    L.push('Notación: figura·altura (q=negra, 8=corchea, 16=semicorchea, qd=negra c. puntillo, 8d=corchea c. puntillo, h=blanca, *r=silencio)');
+    L.push('');
+    const orig=originalSnapshot;
+    const nbar=Math.max(D.measures.length, orig?orig.measures.length:0);
+    L.push('--- COMPARATIVA POR COMPÁS (original  →  editado) ---');
+    for(let i=0;i<nbar;i++){
+      const o=orig&&orig.measures[i]?barToText(orig.measures[i]):'(sin datos)';
+      const e=D.measures[i]?barToText(D.measures[i]):'(vacío)';
+      const changed = (o!==e);
+      L.push('c'+(i+1)+(changed?' *':'  ')+': '+o);
+      if(changed) L.push('      → '+e);
+    }
+    L.push('');
+    L.push('--- JUSTIFICACIÓN DEL PROFESOR ---');
+    L.push(justif.trim()? justif.trim() : '(sin justificación)');
+    L.push('');
+    L.push('(* = compás modificado respecto al original)');
+    const text=L.join('\n');
+    // copiar al portapapeles (con red de seguridad: cuadro de texto seleccionable si el navegador lo bloquea)
+    const fallback=()=>{
+      try{
+        const ta=document.createElement('textarea');
+        ta.value=text; ta.style.cssText='position:fixed;top:10%;left:50%;transform:translateX(-50%);width:80%;max-width:680px;height:50%;z-index:99999;font:12px monospace;padding:12px;border-radius:10px;border:1px solid #345;background:#0a1020;color:#cde;';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        let copied=false; try{ copied=document.execCommand('copy'); }catch(e){}
+        alert(copied? 'Informe copiado al portapapeles. (También puedes copiarlo del cuadro y luego cerrarlo)' : 'Selecciona el texto del cuadro y cópialo (Cmd/Ctrl+C).');
+        const close=()=>{ ta.remove(); document.removeEventListener('keydown',onEsc); };
+        const onEsc=(e)=>{ if(e.key==='Escape') close(); };
+        document.addEventListener('keydown',onEsc);
+        ta.addEventListener('blur',()=>setTimeout(close,200));
+      }catch(e){ alert(text); }
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(
+        ()=>{ alert('Informe de entrenamiento copiado al portapapeles. Pégalo donde quieras.'); },
+        ()=>{ fallback(); }
+      );
+    } else { fallback(); }
+  }
+
+  // devuelve la nota seleccionada actual {measIdx, noteIdx} o null
+  function getSelection(){ return sel ? {measIdx:sel.measIdx, noteIdx:sel.noteIdx} : null; }
+  // resalta visualmente una nota por posición (para acompañar la reproducción)
+  function highlightEditNote(measIdx, noteIdx){
+    const rec=(window.DS_EDIT_NOTES||[]).find(r=>r.measIdx===measIdx && r.noteIdx===noteIdx);
+    if(rec){ drawSelBox(rec); }
+  }
+  return { open, check, cancel, enter, exit, setMode, enharmonic, nudge, closeCellPicker, exportNow, trainingReport, rollNew, registrarNow, updateCount, playDictado, setEditingId, confirmReplace, cancelReplace, getSelection, highlightEditNote };
+})();
+window.DSedit=DSedit;
+
+/* ========== ACCESO BETA (contraseña para ge1 / ge2) ========== */
+var DSbetaPass = (function(){
+  const PASS = '010513';
+  let pendingCourse = null;
+
+  function open(courseId){
+    pendingCourse = courseId;
+    const inp = document.getElementById('betaPassInput');
+    const err = document.getElementById('betaPassErr');
+    if(inp){ inp.value = ''; setTimeout(()=>inp.focus(), 50); }
+    if(err) err.textContent = '';
+    document.getElementById('betaPassModal').style.display = 'flex';
+  }
+
+  function cancel(){
+    document.getElementById('betaPassModal').style.display = 'none';
+    pendingCourse = null;
+  }
+
+  function check(){
+    const val = (document.getElementById('betaPassInput').value || '').trim();
+    if(val !== PASS){
+      document.getElementById('betaPassErr').textContent = 'Contraseña incorrecta.';
+      return;
+    }
+    document.getElementById('betaPassModal').style.display = 'none';
+    const id = pendingCourse;
+    pendingCourse = null;
+    if(id && window.DS && window.DS.courses){
+      window.DS.courses.setActiveCourse(id);
+      try{ window.DS.courses.buildFloating(); }catch(e){}
+      window.DS.courses.closeGate();
+      try{ if(window.DSgen) window.DSgen.clearDictado(); }catch(e){}
+    }
+  }
+
+  return { open, cancel, check };
+})();
+window.DSbetaPass = DSbetaPass;
+
+
 /* ========== TONALIDADES (10 con hasta 2 alteraciones) ========== */
 // keySig: armadura VexFlow. tonicMidi: octava elegida (tónica La siempre en 4).
 const KEYS = [
@@ -3944,12 +5417,36 @@ function degToSemitone(g, mode){
 
 // midi -> nombre VexFlow con la alteración correcta según armadura
 const SHARP_KEYS = ['G','D','A','E','B','Em','Bm'];
-function midiToVexKey(midi, useFlats){
+// qué alteración aporta una armadura a una letra dada ('#','b' o '')
+const KEYSIG_SHARPS = ['F','C','G','D','A','E','B'];   // orden de sostenidos
+const KEYSIG_FLATS  = ['B','E','A','D','G','C','F'];   // orden de bemoles
+const KEYSIG_NSHARP = { 'C':0,'G':1,'D':2,'A':3,'E':4,'B':5,'F#':6 };
+const KEYSIG_NFLAT  = { 'F':1,'Bb':2,'Eb':3,'Ab':4,'Db':5,'Gb':6 };
+function keySigAccidentalFor(keySig, letter){
+  if(!letter) return '';
+  const L=letter.toUpperCase();
+  const ns=KEYSIG_NSHARP[keySig];
+  if(ns!=null){ return KEYSIG_SHARPS.slice(0,ns).includes(L) ? '#' : ''; }
+  const nf=KEYSIG_NFLAT[keySig];
+  if(nf!=null){ return KEYSIG_FLATS.slice(0,nf).includes(L) ? 'b' : ''; }
+  return '';
+}
+// lee la alteración de una clave VexFlow ("f#/4","eb/4","b/3") sin confundir la letra B (Si) con bemol
+function accOfKey(vexKey){
+  const head=(vexKey||'').split('/')[0];   // "f#","eb","b"
+  const acc=head.slice(1);                  // lo que sigue a la letra
+  return acc==='#'?'#':(acc==='b'?'b':null);
+}
+function midiToVexKey(midi, useFlats, keySig){
   const names_sharp=['c','c#','d','d#','e','f','f#','g','g#','a','a#','b'];
   const names_flat =['c','db','d','eb','e','f','gb','g','ab','a','bb','b'];
   const pc=((midi%12)+12)%12;
   const oct=Math.floor(midi/12)-1;
-  const nm=(useFlats?names_flat:names_sharp)[pc];
+  // Si se conoce la tonalidad, las teclas negras se deletrean según la armadura
+  // (tonalidades de bemoles -> bemoles; de sostenidos -> sostenidos). Nunca grafías absurdas (Do♭, etc.).
+  let flats = useFlats;
+  if(keySig!=null){ flats = (typeof KEYSIG_NFLAT!=='undefined' && KEYSIG_NFLAT[keySig]!=null); }
+  const nm=(flats?names_flat:names_sharp)[pc];
   const letter=nm[0];
   const acc=nm.length>1?nm.slice(1):'';
   return {key:letter+(acc==='#'?'#':acc==='b'?'b':'')+'/'+oct, hasAcc:acc!==''};
@@ -3992,16 +5489,351 @@ function activeCatalog(){
 }
 // tonalidades ACTIVAS que afectan al motor (por defecto, las 10 con <=2 alteraciones)
 window.DS_KEYS_ACTIVE = (window.DS_KEYS_ACTIVE) || KEYS.map(k=>k.key);
+function dictRangeSemis(D){
+  if(!D||!D.measures) return 0;
+  let lo=Infinity, hi=-Infinity;
+  D.measures.forEach(m=>m.notes.forEach(n=>{ if(!n.rest && n.midi!=null){ if(n.midi<lo)lo=n.midi; if(n.midi>hi)hi=n.midi; } }));
+  return (hi>=lo)? (hi-lo) : 0;
+}
+// longitud del vaivén más largo entre dos alturas (A-B-A-B...). 3 = A-B-A (aceptable), 4+ = excesivo.
+function maxOscillation(D){
+  if(!D||!D.measures) return 0;
+  const flat=[]; D.measures.forEach(m=>m.notes.forEach(n=>{ if(!n.rest && n.midi!=null) flat.push(n.midi); }));
+  let maxLen=1;
+  for(let i=0;i<flat.length-1;i++){
+    const a=flat[i], b=flat[i+1];
+    if(a===b) continue;
+    let len=2;
+    while(i+len<flat.length){ const expect=(len%2===0)?a:b; if(flat[i+len]===expect) len++; else break; }
+    if(len>maxLen) maxLen=len;
+  }
+  return maxLen;
+}
 function genReal(){
   const cat=activeCatalog();
   if(window.DGEN && cat && cat.active.length){
-    return window.DGEN.generateDictado(cat.active, {meters:cat.meters, keys: cat.keys, level: window.DS_LEVEL||{}});
+    const LV=window.DS_LEVEL||{};
+    const curso=window.DS_ACTIVE_COURSE||'';
+    // 30% de probabilidad de clave de fa en 3º y 4º GE
+    const bassClefCursos = ['ge3','ge4'];
+    const useBass = bassClefCursos.includes(curso) && Math.random()<0.30;
+    if(useBass){
+      return genRealBass(cat);
+    }
+    // 3º y 4º GE (los que usan salto preparado) exigen: ámbito mínimo de 8ª y sin vaivén A-B-A-B excesivo.
+    const requireQuality = !!LV.preparedLeap;
+    const OSC_MAX = 3;   // se permite A-B-A (3); a partir de A-B-A-B (4) se considera pobre
+    let best=null, bestScore=-1;
+    const tries = requireQuality ? 50 : 1;
+    for(let i=0;i<tries;i++){
+      const D=window.DGEN.generateDictado(cat.active, {meters:cat.meters, keys: cat.keys, level: LV});
+      if(!D) continue;
+      if(!requireQuality) return D;
+      const range=dictRangeSemis(D), osc=maxOscillation(D);
+      if(range>=12 && osc<=OSC_MAX) return D;          // cumple ambos criterios
+      // puntuación para quedarnos con el mejor si ninguno cumple del todo: prima la octava, penaliza la oscilación
+      const score=(range>=12?100:range) - Math.max(0,osc-OSC_MAX)*10;
+      if(score>bestScore){ bestScore=score; best=D; }
+    }
+    return best;
   }
-  // sin configuración de curso aún: no inventar una melodía fija (parecería un dictado "de primero").
-  // Devolvemos null; el render no dibujará notas hasta que se elija curso.
   return null;
 }
+
+// Genera un dictado en CLAVE DE FA para 3º/4º GE:
+// - Tonalidades del curso activo
+// - Nivel melódico/rítmico de 2º GE (simpleClose, maxLeap 5ª, bar25rule)
+// - Registro Sol2(43)–Do4(60)
+// - Marca clef:'bass' en el objeto dictado
+function genRealBass(cat){
+  if(!window.DGEN) return null;
+  // nivel de 2ºGE
+  const LV_BASS = {
+    simpleClose: true,
+    maxLeap: 7,          // 5ª = 7 semitonos
+    bar25rule: true,
+    aMinorReg: false,    // registro propio (Sol2–Do4), no el de La menor de clave de sol
+    regLo: 43,           // Sol2
+    regHi: 60,           // Do4
+    bassClef: true,
+  };
+  // células de 2ºGE
+  const GE2_CELLS = new Set([
+    't_3cor','t_npunt','t_negcor_v1',
+    'b_negra','b_silnegra','b_blanca34','b_2cor','b_npuntC','b_mix','b_sinc_v1'
+  ]);
+  const activeBass = cat.active.filter(c=>GE2_CELLS.has(c.id));
+  // si no hay células de ge2 disponibles, usar todas las activas
+  const cells = activeBass.length ? activeBass : cat.active;
+  let best=null, bestScore=-1;
+  for(let i=0;i<30;i++){
+    const D=window.DGEN.generateDictado(cells, {meters:cat.meters, keys: cat.keys, level: LV_BASS});
+    if(!D) continue;
+    const range=dictRangeSemis(D), osc=maxOscillation(D);
+    const score=(range>=8?50:range) - Math.max(0,osc-3)*5;
+    if(score>bestScore){ bestScore=score; best=D; }
+    if(range>=8 && osc<=3) break;
+  }
+  if(best){ best.clef='bass'; }
+  return best;
+}
+
+/* ========== BIBLIOTECA DE DICTADOS REVISADOS (Capa 1) ========== */
+// Cada entrada es un dictado tal como lo produce el motor (objeto DICTADO completo)
+// más un id y la fecha de registro. La vista del alumno sirve estos, no autogenera.
+// Mientras esté vacía, "Nuevo dictado" cae al motor (genReal) como antes.
+const DICTADOS = [
+  // Aquí se irán pegando los dictados registrados desde el editor.
+];
+let LAST_DICT_ID = null;   // id del último dictado servido al alumno (para no repetirlo)
+
+// ---- Historial de dictados ya vistos en ESTE dispositivo (sin login, vía localStorage) ----
+// Clave por curso: 'dictado_vistos_<curso>'. Guarda ids ya servidos para no repetir.
+function vistosKey(curso){ return 'dictado_vistos_'+(curso||'all'); }
+function getVistos(curso){
+  try{ const raw=localStorage.getItem(vistosKey(curso)); return raw? JSON.parse(raw) : []; }
+  catch(e){ return []; }
+}
+function addVisto(curso, id){
+  try{
+    const v=getVistos(curso);
+    if(!v.includes(id)){ v.push(id); localStorage.setItem(vistosKey(curso), JSON.stringify(v)); }
+  }catch(e){}
+}
+function resetVistos(curso){
+  try{ localStorage.removeItem(vistosKey(curso)); }catch(e){}
+}
+
+// Elige un dictado de la biblioteca, del curso activo, evitando los ya vistos en este dispositivo.
+// Cuando se han visto todos, reinicia el historial y empieza un nuevo ciclo.
+// Devuelve null si no hay suficientes dictados del curso (entonces se usa el motor).
+function pickFromLibrary(){
+  if(!DICTADOS.length) return null;
+  const curso = window.DS_ACTIVE_COURSE || null;
+  let pool = curso ? DICTADOS.filter(d=>d.curso===curso) : DICTADOS.slice();
+  if(!pool.length) return null;   // no hay de este curso -> el motor genera
+  // con <=2 dictados del curso, el motor sigue activo (evita repetir siempre el mismo)
+  if(pool.length <= 2) return null;
+
+  // filtrar por historial de vistos en este dispositivo
+  let vistos = getVistos(curso);
+  let candidatos = pool.filter(d=>!vistos.includes(d.id));
+  if(!candidatos.length){
+    // ya se han visto todos: reiniciar ciclo
+    resetVistos(curso);
+    vistos = [];
+    candidatos = pool.slice();
+  }
+  // evitar además repetir el inmediatamente anterior si hay alternativas
+  if(candidatos.length>1 && LAST_DICT_ID!=null){
+    const f=candidatos.filter(d=>d.id!==LAST_DICT_ID);
+    if(f.length) candidatos=f;
+  }
+  const chosen = candidatos[Math.floor(Math.random()*candidatos.length)];
+  LAST_DICT_ID = chosen.id;
+  addVisto(curso, chosen.id);
+  // clonar para que las marcas de revelado/edición no contaminen la biblioteca
+  return JSON.parse(JSON.stringify(chosen.dictado));
+}
 DICTADO = null;
+
+/* ========== CONEXIÓN SUPABASE (biblioteca de dictados en la nube) ========== */
+// Clave anon PÚBLICA por diseño (va en el HTML). Lo que protege la tabla son las políticas RLS:
+// lectura pública para todos; escritura abierta de momento (se endurecerá con login al publicar).
+const SUPA_URL  = 'https://woiptkyrxkbpnvioypit.supabase.co';
+const SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvaXB0a3lyeGticG52aW95cGl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NzI2ODYsImV4cCI6MjA5MjA0ODY4Nn0.B2nKgj5rD0rkdLeMIrd9KgD8lUPWsBT4Y7aCtmnvbjA';
+const SUPA_HEADERS = { 'apikey':SUPA_ANON, 'Authorization':'Bearer '+SUPA_ANON, 'Content-Type':'application/json' };
+
+// Carga todos los dictados de Supabase y los fusiona en DICTADOS (sin duplicar por id de fila).
+async function loadDictadosFromSupabase(){
+  try{
+    const r = await fetch(SUPA_URL+'/rest/v1/dictados_lmeav?select=*&order=created_at.asc', { headers: SUPA_HEADERS });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const rows = await r.json();
+    // sustituir la biblioteca por lo que hay en la nube (cada fila trae id, curso, fecha, dictado)
+    const fromCloud = rows.map(row=>({ id:'sb_'+row.id, curso:row.curso, fecha:row.fecha, dictado:row.dictado }));
+    // conservar los locales que NO estén ya en la nube (respaldo del primero, por si acaso)
+    const cloudKeys = new Set(fromCloud.map(d=>JSON.stringify(d.dictado)));
+    const localOnly = DICTADOS.filter(d=>!cloudKeys.has(JSON.stringify(d.dictado)));
+    DICTADOS.length = 0;
+    fromCloud.concat(localOnly).forEach(d=>DICTADOS.push(d));
+    if(window.DSedit && DSedit.updateCount) DSedit.updateCount();
+    return DICTADOS.length;
+  }catch(e){
+    console.warn('No se pudieron cargar dictados de Supabase:', e.message);
+    return null; // se sigue con los locales
+  }
+}
+
+// Inserta un dictado en Supabase. Devuelve true si se guardó.
+async function registrarDictadoEnSupabase(curso, fecha, dictado){
+  const body = JSON.stringify([{ curso, fecha, dictado }]);
+  const r = await fetch(SUPA_URL+'/rest/v1/dictados_lmeav', {
+    method:'POST',
+    headers: Object.assign({}, SUPA_HEADERS, { 'Prefer':'return=representation' }),
+    body
+  });
+  if(!r.ok){ const t=await r.text(); throw new Error('HTTP '+r.status+' '+t.slice(0,120)); }
+  const rows = await r.json();
+  // añadir a la biblioteca en memoria para que esté disponible sin recargar
+  if(rows && rows[0]){
+    DICTADOS.push({ id:'sb_'+rows[0].id, curso:rows[0].curso, fecha:rows[0].fecha, dictado:rows[0].dictado });
+  }
+  return true;
+}
+
+// Elimina un dictado de Supabase por su id real (el número tras "sb_").
+async function eliminarDictadoDeSupabase(rowId){
+  const r = await fetch(SUPA_URL+'/rest/v1/dictados_lmeav?id=eq.'+encodeURIComponent(rowId), {
+    method:'DELETE',
+    headers: Object.assign({}, SUPA_HEADERS, { 'Prefer':'return=minimal' })
+  });
+  if(!r.ok){ const t=await r.text(); throw new Error('HTTP '+r.status+' '+t.slice(0,120)); }
+  return true;
+}
+
+// Actualiza un dictado existente en Supabase (mantiene su id / nº de registro).
+async function actualizarDictadoEnSupabase(rowId, curso, fecha, dictado){
+  const body = JSON.stringify({ curso, fecha, dictado });
+  const r = await fetch(SUPA_URL+'/rest/v1/dictados_lmeav?id=eq.'+encodeURIComponent(rowId), {
+    method:'PATCH',
+    headers: Object.assign({}, SUPA_HEADERS, { 'Prefer':'return=representation' }),
+    body
+  });
+  if(!r.ok){
+    const t=await r.text();
+    // mensaje claro si es problema de permisos (RLS no permite UPDATE)
+    if(r.status===401 || r.status===403){
+      throw new Error('Permisos: la tabla no permite editar (falta política UPDATE en Supabase). '+t.slice(0,80));
+    }
+    throw new Error('HTTP '+r.status+' '+t.slice(0,120));
+  }
+  const rows = await r.json();
+  // si la política de SELECT no devuelve la fila, verificar que existe el id que editábamos
+  const idx=DICTADOS.findIndex(x=>x.id==='sb_'+rowId);
+  if(rows && rows.length){
+    // confirmado por el servidor
+    if(idx>=0){ DICTADOS[idx]={ id:'sb_'+rows[0].id, curso:rows[0].curso, fecha:rows[0].fecha, dictado:rows[0].dictado }; }
+  } else {
+    // el servidor no devolvió filas: o el id no existía, o RLS no deja ver el resultado.
+    // Comprobamos releyendo esa fila concreta para no fingir un éxito.
+    const chk = await fetch(SUPA_URL+'/rest/v1/dictados_lmeav?id=eq.'+encodeURIComponent(rowId)+'&select=*', { headers: SUPA_HEADERS });
+    const chkRows = chk.ok ? await chk.json() : [];
+    if(!chkRows.length){
+      throw new Error('No se encontró el dictado #'+rowId+' para reemplazar (puede que se borrara o el id cambiara).');
+    }
+    // existe: actualizamos memoria con lo que enviamos
+    if(idx>=0){ DICTADOS[idx]={ id:'sb_'+rowId, curso, fecha, dictado }; }
+  }
+  return true;
+}
+
+/* ========== GESTIÓN / ELIMINAR DICTADOS ========== */
+const DSmanage = (function(){
+  function cursoLbl(id){
+    const m=(id||'').match(/^ge(\d)$/i); if(m) return m[1]+'º GE';
+    const g=(id||'').match(/^gp(\d)$/i); if(g) return g[1]+'º GP';
+    return id||'—';
+  }
+  // nombre legible de tonalidad del dictado guardado
+  function tonName(d){
+    try{
+      const k=d && d.dictado && d.dictado.name;
+      return k || '';
+    }catch(e){ return ''; }
+  }
+  function render(){
+    const host=document.getElementById('manageList');
+    const sub=document.getElementById('manageSub');
+    if(!host) return;
+    const curso=window.DS_ACTIVE_COURSE||null;
+    // dictados del curso activo, ordenados por id real (nº de registro) ascendente
+    let list=DICTADOS.filter(d=>!curso || d.curso===curso).slice();
+    list.sort((a,b)=>{
+      const na=parseInt(String(a.id).replace('sb_',''))||0;
+      const nb=parseInt(String(b.id).replace('sb_',''))||0;
+      return na-nb;
+    });
+    if(sub) sub.textContent = (curso?cursoLbl(curso):'Todos los cursos')+' · '+list.length+' dictado'+(list.length!==1?'s':'');
+    if(!list.length){ host.innerHTML='<div class="manage-empty">No hay dictados registrados para este curso.</div>'; return; }
+    host.innerHTML='';
+    list.forEach((d)=>{
+      const rowId=String(d.id).replace('sb_','');
+      const ts=(d.dictado && d.dictado.ts)||'';
+      const ton=tonName(d);
+      const div=document.createElement('div'); div.className='manage-item';
+      // cabecera con info y botones
+      const headRow=document.createElement('div'); headRow.className='mi-head';
+      headRow.innerHTML='<span class="mi-num">#'+rowId+'</span>'+
+        '<span class="mi-info">'+(ton||'(sin nombre)')+' · '+ts+' <small>· '+cursoLbl(d.curso)+' · '+(d.fecha||'')+'</small></span>';
+      const editBtn=document.createElement('button'); editBtn.className='mi-edit'; editBtn.textContent='Editar';
+      editBtn.onclick=()=>doEdit(d);
+      headRow.appendChild(editBtn);
+      const delBtn=document.createElement('button'); delBtn.className='mi-del'; delBtn.textContent='Eliminar';
+      delBtn.onclick=()=>doDelete(d, delBtn);
+      headRow.appendChild(delBtn);
+      div.appendChild(headRow);
+      // miniatura (vista previa de la partitura)
+      const thumb=document.createElement('div'); thumb.className='mi-thumb';
+      div.appendChild(thumb);
+      host.appendChild(div);
+      // renderizar la miniatura tras insertar (necesita estar en el DOM para medir ancho)
+      setTimeout(()=>{
+        try{
+          if(window.DSgen && window.DSgen.renderThumbnail){
+            window.DSgen.renderThumbnail(d.dictado, thumb);
+            const svg=thumb.querySelector('svg');
+            if(svg){ svg.style.width='100%'; svg.style.height='auto'; svg.style.display='block'; svg.removeAttribute('width'); }
+          }
+        }catch(e){}
+      }, 120);
+    });
+  }
+  // carga el dictado en el editor para revisarlo (se cierra el modal y entra en edición)
+  function doEdit(d){
+    if(!d || !d.dictado){ alert('Este dictado no se puede editar.'); return; }
+    close();
+    // pequeño retardo para que el cierre del modal no interfiera con el render del editor
+    setTimeout(()=>{
+      try{
+        if(window.DSgen && window.DSgen.loadDictadoForEdit){
+          // 1) entrar en modo edición (asegura editBar visible y on=true)
+          if(window.DSedit && DSedit.enter) DSedit.enter();
+          // 2) cargar el dictado de la biblioteca en el editor (esto re-renderiza)
+          window.DSgen.loadDictadoForEdit(d.dictado);
+          // 3) volver al modo alturas para que se armen las notas editables
+          if(window.DSedit && DSedit.setMode) DSedit.setMode('alturas');
+          // 4) marcar que editamos ESTE dictado (Registrar reemplazará, no duplicará)
+          if(window.DSedit && DSedit.setEditingId) DSedit.setEditingId(d.id);
+        }
+      }catch(e){ alert('No se pudo abrir el editor: '+e.message); }
+    }, 60);
+  }
+  async function doDelete(d, btn){
+    const rowId=String(d.id).replace('sb_','');
+    if(!confirm('¿Eliminar el dictado #'+rowId+'? Esta acción no se puede deshacer.')) return;
+    btn.disabled=true; btn.textContent='Eliminando…';
+    try{
+      await eliminarDictadoDeSupabase(rowId);
+      // quitar de la biblioteca en memoria
+      const idx=DICTADOS.findIndex(x=>x.id===d.id);
+      if(idx>=0) DICTADOS.splice(idx,1);
+      if(window.DSedit && DSedit.updateCount) DSedit.updateCount();
+      render();
+    }catch(e){
+      btn.disabled=false; btn.textContent='Eliminar';
+      alert('No se pudo eliminar: '+e.message);
+    }
+  }
+  function open(){
+    document.getElementById('manageModal').classList.add('show');
+    // renderizar tras mostrar el modal (así .mi-thumb ya está en el DOM y visible)
+    setTimeout(render, 60);
+  }
+  function close(){ document.getElementById('manageModal').classList.remove('show'); }
+  return { open, close };
+})();
+window.DSmanage = DSmanage;
 
 /* ========== MOTOR DE AUDIO (soundfont piano) ========== */
 const DSaudio = (function(){
@@ -4088,6 +5920,26 @@ const DSgen = (function(){
     if(host) host.style.visibility = show ? 'hidden' : 'visible';
     setPlayersEnabled(!show);
   }
+  // redibuja y aplica un fundido SOLO a la armadura y al nombre de tonalidad (no al pentagrama)
+  function redrawWithFade(){
+    redraw();
+    const host=document.getElementById('dictScore');
+    if(!host) return;
+    const svg=host.querySelector('svg'); if(!svg) return;
+    // elementos a fundir: el texto del nombre (.key-reveal-fx) y los glyphs de la armadura.
+    // VexFlow dibuja la armadura como <path> tras la clave; los marcamos por posición x baja.
+    const fadeEls=[];
+    svg.querySelectorAll('.key-reveal-fx').forEach(e=>fadeEls.push(e));
+    // armadura: paths cuya x está en la zona inicial (tras la clave, antes del compás)
+    // se identifican por estar dentro de los primeros ~120px del primer sistema
+    // (heurística simple: no rompemos nada si no encuentra)
+    fadeEls.forEach(e=>{
+      e.style.opacity='0';
+      e.style.transition='opacity .6s ease';
+      void e.getBoundingClientRect();
+      requestAnimationFrame(()=>{ e.style.opacity='1'; });
+    });
+  }
   function redraw(){
     const host=document.getElementById('dictScore');
     if(!host) return;
@@ -4105,14 +5957,15 @@ const DSgen = (function(){
     if(cta) cta.style.display='none';
     host.style.display='flex';
     setPlayersEnabled(true);
-    document.getElementById('genMeta').textContent =
-      'Tonalidad: '+(keyRevealed?DICTADO.name:'oculta')+' · '+(tsRevealed?DICTADO.ts:'compás oculto')+' · 2 frases de 4 compases · ♩= '+bpm();
+    // (se retira el texto "Tonalidad: oculta · compás oculto · 2 frases · ♩=" a petición de Iago)
+    const gm0=document.getElementById('genMeta'); if(gm0) gm0.textContent='';
     const W=Math.max(320,(host.clientWidth||760)-28);
     const sysGap=104, topY=18;
     const H=topY+sysGap*2+6;
     const renderer=new VF.Renderer(host, VF.Renderer.Backends.SVG);
     renderer.resize(W,H);
     const ctx=renderer.getContext();
+    window.DS_EDIT_NOTES = [];   // registro de notas editables (sn + ref al modelo) para el mini-editor
     const startX=4, usable=W-startX-6;
     barRects=[];
     // cuenta de figuras "visibles" por compás (para anchos proporcionales)
@@ -4147,15 +6000,37 @@ const DSgen = (function(){
         if(mi===0) w+=extraFirst;
         const stave=new VF.Stave(x,y,w);
         if(mi===0){
-          stave.addClef('treble');
+          const isBass = DICTADO.clef==='bass';
+          stave.addClef(isBass?'bass':'treble');
           if(keyRevealed && DICTADO.keySig && DICTADO.keySig!=='C') stave.addKeySignature(DICTADO.keySig);
           if(sys===0 && tsRevealed) stave.addTimeSignature(DICTADO.ts);
         }
         if(measIdx===7) stave.setEndBarType(VF.Barline.type.END);
         stave.setContext(ctx).draw();
+        // nombre corto de tonalidad encima del primer compás (cuando está revelada)
+        if(sys===0 && mi===0 && keyRevealed && DICTADO){
+          try{
+            const nm=shortKeyName(DICTADO.key);
+            const svgEl=host.querySelector('svg') || ctx.svg;
+            if(svgEl){
+              const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+              t.setAttribute('x', stave.getNoteStartX()-2);
+              t.setAttribute('y', y-4);
+              t.setAttribute('font-family','Helvetica, Arial, sans-serif');
+              t.setAttribute('font-size','15'); t.setAttribute('font-weight','bold');
+              t.setAttribute('fill','#1a2740');
+              t.setAttribute('class','key-reveal-fx');
+              t.textContent=nm;
+              svgEl.appendChild(t);
+            }
+          }catch(e){}
+        }
         // dar más aire tras la clave/armadura del primer compás (que la 1ª figura no quede pegada)
         if(mi===0){ try{ stave.setNoteStartX(stave.getNoteStartX()+18); }catch(e){} }
-        barRects[measIdx]={staveX:x, y:y, staveW:w};
+        // guardar la Y real de las líneas superior/inferior del pentagrama (para el resaltado)
+        let topLineY=y+13, botLineY=y+53;
+        try{ topLineY=stave.getYForLine(0); botLineY=stave.getYForLine(4); }catch(e){}
+        barRects[measIdx]={staveX:x, y:y, staveW:w, topLineY:topLineY, botLineY:botLineY};
         drawMeasureNotes(ctx, stave, measIdx, mi===0);
         x+=w;
       }
@@ -4171,7 +6046,7 @@ const DSgen = (function(){
     const baseP=measIdx*bpb;
     const tuplets=meas._tuplets||[];
     if(fullRevealed){
-      return {items: meas.notes.map(n=>({tok:n, filler:false})), tuplets};
+      return {items: meas.notes.map((n,ni)=>({tok:n, filler:false, modelIdx:ni})), tuplets};
     }
     const revSet=new Set();
     for(let p=0;p<bpb;p++) if(revealedPulses.has(baseP+p)) revSet.add(p);
@@ -4202,7 +6077,8 @@ const DSgen = (function(){
         here.forEach(f=>out.push({tok:f.n, filler:false}));
       } else if(pistaRit===gp && here.length){
         // PISTA RÍTMICA: misma duración y agrupación, pero cabeza en 3ª línea (altura neutra)
-        here.forEach(f=>out.push({tok:{...f.n, k:'b/4', alt:null}, filler:false, pistaNeutral:true}));
+        const _pistaNeutralKey = (DICTADO&&DICTADO.clef==='bass') ? 'b/2' : 'b/4';
+        here.forEach(f=>out.push({tok:{...f.n, k:_pistaNeutralKey, alt:null}, filler:false, pistaNeutral:true}));
       } else if(pistaMel===gp && here.length){
         // PISTA MELÓDICA: solo cabezas (negras: sin banderola), equidistantes en el pulso,
         // SIN plica (se oculta en el render) ni corchete ni tuplet. La voz va en modo SOFT,
@@ -4210,7 +6086,7 @@ const DSgen = (function(){
         const heads=here.filter(f=>!(f.n.d||'').includes('r'));
         heads.forEach(f=>out.push({tok:{k:f.n.k, alt:f.n.alt, d:'q'}, filler:false, pistaMelodic:true}));
       } else {
-        out.push({tok:{rest:true, d: DICTADO.pulseFig==='qd'?'qdr':'qr'}, filler:true});
+        out.push({tok:{rest:true, d: DICTADO.pulseFig==='qd'?'qdr':'qr', k: DICTADO.clef==='bass'?'b/2':'b/4'}, filler:true});
       }
     }
     return {items:out, tuplets:[]};
@@ -4222,46 +6098,124 @@ const DSgen = (function(){
     const items=data.items, tupletDefs=data.tuplets||[];
     const [num,den]=DICTADO.ts.split('/').map(n=>parseInt(n,10));
     let vfnotes=[];
+    // REGLA DE ALTERACIÓN EN EL COMPÁS: una alteración rige hasta la barra de compás.
+    // Llevamos qué alteración está vigente para cada nota (letra+octava) dentro de ESTE compás.
+    // Se reinicia en cada compás (esta función se llama una vez por compás).
+    const accInBar={};   // clave 'f/4' -> '#', 'b', 'n' (lo que se mostró por última vez)
     items.forEach(it=>{
       const n=it.tok;
       const durTok=n.d;
       const dur=durTok.replace('d','').replace('r','');
       const rest=durTok.includes('r');
-      const key=rest?'b/4':n.k;
-      const sn=new VF.StaveNote({keys:[key], duration:dur+(rest?'r':''), stem_direction:1});
-      if(durTok.includes('d')&&!rest) sn.addModifier(new VF.Dot(),0);
-      if(!rest && n.alt){ const acc = n.alt==='#'?'#':(n.alt==='n'?'n':'b'); sn.addModifier(new VF.Accidental(acc),0); }
+      // RED DE SEGURIDAD de grafía: salvo alteración accidental marcada por el motor (n.alt '#'/'b'/'n')
+      // o enarmonía forzada por el usuario en el editor (_enhForced),
+      // la nota se deletrea SIEMPRE según la tonalidad (evita grafías absurdas tipo Do♭ en Si menor).
+      if(!rest && n.midi!=null && !n.alt && !n._enhForced){
+        const fixed=midiToVexKey(n.midi, false, DICTADO.keySig).key;
+        if(fixed && fixed!==n.k) n.k=fixed;
+      }
+      const isBassClef = DICTADO.clef==='bass';
+      // En clave de fa el silencio neutro va en b/2 (3ª línea del pentagrama de fa)
+      const restKey = isBassClef ? 'b/2' : 'b/4';
+      const key=rest?restKey:n.k;
+      const sn=new VF.StaveNote({keys:[key], duration:dur+(rest?'r':''), clef: isBassClef?'bass':'treble', stem_direction:1});
+      sn._editMidi = rest? null : n.midi;   // guardar midi para calcular dirección de plica
+      if(durTok.includes('d')) sn.addModifier(new VF.Dot(),0);  // puntillo también en silencios
+      if(!rest){
+        // n.k tiene formato "<letra><acc?>/<octava>", p.ej. "f#/4", "eb/4", "b/3" (Si3, sin alteración).
+        // OJO: la letra 'b' es la nota Si; el bemol es el carácter QUE SIGUE a la letra, no un 'b' en cualquier sitio.
+        const head=(n.k||'').split('/')[0];        // p.ej. "f#", "eb", "b"
+        const letter=head[0];                       // 'a'..'g'
+        const accChar=head.slice(1);                // '#', 'b' o ''
+        const noteAcc = accChar==='#' ? '#' : (accChar==='b' ? 'b' : '');
+        const ksAcc = keySigAccidentalFor(DICTADO.keySig, letter);  // lo que da la armadura: '#','b' o ''
+        const octave=(n.k||'').split('/')[1]||'4';
+        const noteId=letter+'/'+octave;   // identifica letra+octava (Sol4, Sol5 son distintos)
+        // lo que esta nota REALMENTE suena respecto a su natural: '#','b' o '' (natural)
+        const effectiveAcc = noteAcc || '';
+        // lo que la partitura ya da por sentado para esta nota en este punto:
+        //  - si ya hubo una alteración antes en el compás para esta nota -> esa rige
+        //  - si no, rige la armadura
+        const carried = (accInBar[noteId]!==undefined) ? accInBar[noteId] : ksAcc;
+        // estado efectivo "vigente" como signo: '#','b' o '' (natural)
+        const carriedSign = (carried==='n') ? '' : carried;
+        let show=null;
+        if(effectiveAcc !== carriedSign){
+          // hay que escribir un signo: el de la alteración, o becuadro si vuelve a natural
+          show = effectiveAcc || 'n';
+        }
+        if(show){
+          sn.addModifier(new VF.Accidental(show),0);
+          accInBar[noteId]=show;   // a partir de aquí, esta nota queda con esta alteración en el compás
+        }
+        // si NO mostramos nada pero la nota tiene alteración, igualmente queda vigente
+        // (no hace falta actualizar accInBar porque carried ya coincide)
+      }
       if(it.filler){ sn.setStyle({fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }
       // PISTA RÍTMICA: mostrar plica/corchete pero SIN cabeza (la cabeza haría pensar en una nota concreta)
       if(it.pistaNeutral){ try{ sn.setKeyStyle(0, {fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }catch(e){} }
       // PISTA MELÓDICA: mostrar solo la cabeza, SIN plica ni corchete
       if(it.pistaMelodic){ try{ sn.setStemStyle({fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }catch(e){} }
-      vfnotes.push({sn, tok:n, filler:it.filler, pistaMelodic:it.pistaMelodic});
+      vfnotes.push({sn, tok:n, filler:it.filler, pistaMelodic:it.pistaMelodic, modelIdx:it.modelIdx});
     });
     const tupIdx=new Set();
     tupletDefs.forEach(tp=>{ for(let i=tp.start;i<tp.start+tp.def.first;i++) tupIdx.add(i); });
     const PS=DICTADO.pulseFig==='qd'?1.5:1;
     const DB={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
-    let beams=[]; let run=[]; let pos=0; let curPulse=0;
-    const flush=()=>{ if(run.length>=2) beams.push(new VF.Beam(run.map(o=>o.sn))); run=[]; };
+
+    // === 1) AGRUPAR las notas que irán unidas por corchete (sin crear los Beam todavía) ===
+    // factor de tuplet por índice de nota (dosillo/cuatrillo comprimen su duración real al espacio de un pulso)
+    const tupFactor=new Array(vfnotes.length).fill(1);
+    tupletDefs.forEach(tp=>{ const f=tp.def?(tp.def.notes/tp.def.num):1; for(let i=tp.start;i<tp.start+(tp.def?tp.def.first:0);i++){ if(i<tupFactor.length) tupFactor[i]=f; } });
+    let groups=[]; let run=[]; let pos=0; let curPulse=0;
+    const flushG=()=>{ if(run.length>=2) groups.push(run.slice()); run=[]; };
     vfnotes.forEach((o,i)=>{
       const base=o.tok.d.replace('r','').replace('d','');
       const rest=o.tok.d.includes('r');
-      const db= o.tok.dur==='full'? num*(4/den) : (DB[o.tok.d.replace('r','')]||1);
+      const db= (o.tok.dur==='full'? num*(4/den) : (DB[o.tok.d.replace('r','')]||1)) * tupFactor[i];
       const thisPulse=Math.floor(pos/PS+1e-9);
-      if(thisPulse!==curPulse){ flush(); curPulse=thisPulse; }
-      if((base==='8'||base==='16') && !rest && !tupIdx.has(i) && !o.pistaMelodic){ run.push(o); } else { flush(); }
+      if(thisPulse!==curPulse){ flushG(); curPulse=thisPulse; }
+      if((base==='8'||base==='16') && !rest && !tupIdx.has(i) && !o.pistaMelodic){ run.push(o); } else { flushG(); }
       pos+=db;
     });
-    flush();
-    let tupletGroups=[];
+    flushG();
+    // grupos de tuplet (también van con corchete)
+    const tupletSlices=[];
     tupletDefs.forEach(tp=>{
-      const slice=vfnotes.slice(tp.start, tp.start+tp.def.first).map(o=>o.sn);
-      if(slice.length){
-        tupletGroups.push(new VF.Tuplet(slice,{num_notes:tp.def.num, notes_occupied:tp.def.notes, bracketed:true, ratioed:false}));
-        if(slice.length>=2) beams.push(new VF.Beam(slice));
-      }
+      const slice=vfnotes.slice(tp.start, tp.start+tp.def.first);
+      if(slice.length===tp.def.first){ tupletSlices.push({tp, slice}); if(slice.length>=2) groups.push(slice.slice()); }
     });
+
+    // === 2) DIRECCIÓN DE PLICAS (antes de crear los Beam) ===
+    // Clave de sol: 3ª línea = Si4=71. Clave de fa: 3ª línea = Si2=47.
+    // En o por encima de la línea central -> plica abajo; por debajo -> plica arriba.
+    // En grupo con corchete manda la mayoría (empate -> abajo).
+    const STEM_UP=1, STEM_DOWN=-1;
+    const MID = (DICTADO && DICTADO.clef==='bass') ? 47 : 71;
+    const dirForMidi=(m)=> (m>=MID)? STEM_DOWN : STEM_UP;
+    const setDir=(sn,d)=>{ try{ sn.setStemDirection(d); }catch(e){ try{ sn.stem_direction=d; }catch(_){} } };
+    const inGroup=new Set();
+    groups.forEach(g=>{
+      let up=0,down=0;
+      g.forEach(o=>{ const m=o.sn._editMidi; if(m==null) return; (dirForMidi(m)===STEM_UP)?up++:down++; });
+      const d=(down>=up)? STEM_DOWN : STEM_UP;
+      g.forEach(o=>{ setDir(o.sn,d); inGroup.add(o.sn); });
+    });
+    vfnotes.forEach(o=>{ if(inGroup.has(o.sn)) return; if(o.sn._editMidi==null) return; setDir(o.sn, dirForMidi(o.sn._editMidi)); });
+
+    // === 3) CREAR los Beam con la dirección ya fijada (auto_stem:false respeta la dirección de las notas) ===
+    let beams=[];
+    groups.forEach(g=>{
+      try{ beams.push(new VF.Beam(g.map(o=>o.sn), false)); }catch(e){}  // 2º arg = auto_stem false
+    });
+    let tupletGroups=[];
+    tupletSlices.forEach(({tp,slice})=>{
+      // si todas las notas del tuplet son corcheas/semicorcheas (llevan beam), el número va SIN corchete;
+      // si hay figuras sin beam, se dibuja con corchete para que se entienda el grupo.
+      const allBeamed = slice.every(o=>{ const b=(o.tok.d||'').replace('r','').replace('d',''); return (b==='8'||b==='16') && !o.tok.d.includes('r'); });
+      try{ tupletGroups.push(new VF.Tuplet(slice.map(o=>o.sn),{num_notes:tp.def.num, notes_occupied:tp.def.notes, bracketed:!allBeamed, ratioed:false})); }catch(e){}
+    });
+
     const voice=new VF.Voice({num_beats:num,beat_value:den}).setMode(VF.Voice.Mode.SOFT);
     voice.addTickables(vfnotes.map(o=>o.sn));
     new VF.Formatter().joinVoices([voice]).format([voice], stave.getNoteEndX()-stave.getNoteStartX()-8);
@@ -4300,29 +6254,48 @@ const DSgen = (function(){
         });
       });
     }catch(e){}
+
+    // registrar notas editables (solo cuando se ve el dictado completo y son notas reales con altura)
+    if(fullRevealed){
+      vfnotes.forEach(o=>{
+        if(o.modelIdx==null || o.filler || o.pistaMelodic) return;
+        try{
+          const el=(o.sn.attrs&&o.sn.attrs.el)||(o.sn.getSVGElement&&o.sn.getSVGElement());
+          window.DS_EDIT_NOTES.push({ sn:o.sn, el, measIdx, noteIdx:o.modelIdx, tok:o.tok, rest:!!o.tok.rest });
+        }catch(e){}
+      });
+    }
   }
 
+  // resalta el compás que suena dibujando sus DOS líneas divisorias (inicio/fin) en azul y más gruesas,
+  // directamente en el SVG (mismas coordenadas que el pentagrama -> sin problemas de escala).
   function highlightBar(measIdx){
-    const hl=document.getElementById('barHL');
-    if(!hl) return;
-    if(measIdx==null || !barRects[measIdx]){ hl.style.display='none'; return; }
-    const r=barRects[measIdx];
     const panel=document.getElementById('dictScore');
     const svg=panel && panel.querySelector('svg');
-    if(!svg){ hl.style.display='none'; return; }
-    // posición relativa al panel (que es position:relative y contiene el overlay)
-    const sLeft = svg.offsetLeft || 0;
-    const sTop = svg.offsetTop || 0;
-    hl.style.display='block';
-    hl.style.left=(sLeft + r.staveX)+'px';
-    hl.style.top=(sTop + r.y - 4)+'px';
-    hl.style.width=Math.max(20, r.staveW)+'px';
-    hl.style.height='80px';
+    if(!svg) return;
+    // limpiar marcas anteriores
+    svg.querySelectorAll('.bar-hl-line').forEach(e=>e.remove());
+    if(measIdx==null || !barRects[measIdx]) return;
+    const r=barRects[measIdx];
+    const top = (r.topLineY!=null) ? r.topLineY : (r.y+13);
+    const bot = (r.botLineY!=null) ? r.botLineY : (r.y+53);
+    // SOLO la línea IZQUIERDA del compás que suena (el inicio del compás).
+    // Para el primer compás de cada sistema, es la línea inicial del pentagrama (antes de la clave).
+    const xLeft = r.staveX;
+    const NS='http://www.w3.org/2000/svg';
+    const ln=document.createElementNS(NS,'line');
+    ln.setAttribute('x1',xLeft); ln.setAttribute('x2',xLeft);
+    ln.setAttribute('y1',top-2); ln.setAttribute('y2',bot+2);
+    ln.setAttribute('stroke','#5b9dff');
+    ln.setAttribute('stroke-width','3.5');
+    ln.setAttribute('stroke-linecap','round');
+    ln.setAttribute('class','bar-hl-line');
+    svg.appendChild(ln);
   }
 
   function playNote(midi, when, durSec, accent){
     DSaudio.ensurePiano().then(p=>{
-      const node=p.play(midi, when, {duration:durSec, gain:accent?1.4:0.9});
+      const node=p.play(midi, when, {duration:durSec, gain:accent?1.7:1.2});
       DSaudio.track(node);
     });
   }
@@ -4360,9 +6333,11 @@ const DSgen = (function(){
       for(let p=0;p<totalPulsosClick;p++){
         const t=musicStart + p*beatSec();
         const osc=ac.createOscillator(), g=ac.createGain();
-        osc.frequency.value = (p%bpb===0)?900:760;
+        // MISMO timbre en todos los pulsos; solo cambia el volumen (1er pulso de compás algo más fuerte)
+        osc.frequency.value = 800;
+        const vol = (p%bpb===0) ? 0.09 : 0.055;
         g.gain.setValueAtTime(0.0001,t);
-        g.gain.exponentialRampToValueAtTime(0.08,t+0.004); // volumen bajo: sutil
+        g.gain.exponentialRampToValueAtTime(vol,t+0.004);
         g.gain.exponentialRampToValueAtTime(0.0001,t+0.08);
         osc.connect(g).connect(ac.destination);
         osc.start(t); osc.stop(t+0.1);
@@ -4424,21 +6399,27 @@ const DSgen = (function(){
       playNote(DICTADO.tonicMidi, t+1.6, 1.0, false); // tónica, tras un silencio claro
     });
   }
+  // Acordes de referencia I–IV–V–I, tríadas con la TÓNICA del tono como nota más aguda,
+  // y esa tónica en la MISMA octava que la tónica sola de referencia (t). El resto del acorde, debajo.
+  // En Fa mayor (grave→agudo): La3–Do4–Fa4 | Sib3–Re4–Fa4 | Sol3–Do4–Mi4 | La3–Do4–Fa4.
   function chordVoicings(){
     const t=DICTADO.tonicMidi, minor=DICTADO.mode==='minor', third=minor?3:4;
-    const sopr=[t+12, t+12, t+11, t+12];
+    const top=t;        // tónica del acorde = misma octava que la tónica sola
+    const sens=t-1;     // sensible, justo bajo la tónica (soprano del V)
     return [
-      [t, t+third, t+7, sopr[0]],
-      [t+5, t+5+(minor?3:4), t+12, sopr[1]],
-      [t+7, t+11, t+14, sopr[2]],
-      [t, t+third, t+7, sopr[3]],
+      [t-12+third, t-5, top],            // I:  3ª – 5ª – tónica
+      [t-7,        t-7+(minor?3:4), top],// IV: fund – 3ª (menor +3 / mayor +4) – tónica
+      [t-10,       t-5, sens],           // V:  fund – 5ª – sensible
+      [t-12+third, t-5, top],            // I final
     ];
   }
   function playChords(){
     DSaudio.ensurePiano().then(()=>{
       const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
       const chords=chordVoicings(), dur=0.95, gap=1.0;
-      chords.forEach((ch,i)=>{ const when=ac.currentTime+0.1+i*gap; ch.forEach(m=>playNote(m,when,dur,false)); });
+      // separación temporal ANTES del primer acorde, igual que el silencio La->tónica de la referencia
+      const startGap=1.6;
+      chords.forEach((ch,i)=>{ const when=ac.currentTime+0.1+startGap+i*gap; ch.forEach(m=>playNote(m,when,dur,false)); });
     });
   }
 
@@ -4479,14 +6460,23 @@ const DSgen = (function(){
       host.appendChild(card);
     });
     // estado de las tarjetas de acción (pistas / revelar)
+    // si las pistas están bloqueadas por fallo de quiz, se marcan 'blocked' (atenuadas pero clicables)
     const br=document.getElementById('btnPistaRit');
-    if(br){ br.classList.toggle('spent',pistaRit!=null); br.classList.toggle('arming',pistaPick==='rit'); }
+    if(br){ br.classList.toggle('spent', !hintsBlocked && pistaRit!=null); br.classList.toggle('arming',pistaPick==='rit'); br.classList.toggle('blocked', hintsBlocked); }
     const bm=document.getElementById('btnPistaMel');
-    if(bm){ bm.classList.toggle('spent',pistaMel!=null); bm.classList.toggle('arming',pistaPick==='mel'); }
+    if(bm){ bm.classList.toggle('spent', !hintsBlocked && pistaMel!=null); bm.classList.toggle('arming',pistaPick==='mel'); bm.classList.toggle('blocked', hintsBlocked); }
     const bk=document.getElementById('btnRevKey');
-    if(bk){ bk.classList.toggle('spent',keyRevealed); }
+    if(bk){ bk.classList.toggle('spent', !hintsBlocked && keyRevealed); bk.classList.toggle('blocked', hintsBlocked); }
     const bt=document.getElementById('btnRevTs');
-    if(bt){ bt.classList.toggle('spent',tsRevealed); }
+    if(bt){ bt.classList.toggle('spent', !hintsBlocked && tsRevealed); bt.classList.toggle('blocked', hintsBlocked); }
+    // el nombre de la tonalidad ahora se dibuja DENTRO de la partitura (encima del 1er compás)
+    const gm=document.getElementById('genMeta');
+    if(gm){
+      if(false){
+      } else {
+        gm.textContent='';
+      }
+    }
   }
 
   // parpadeo del play de la tarjeta con el pulso + estado visual
@@ -4534,11 +6524,12 @@ const DSgen = (function(){
     renderSeq();
     markDotPlaying(idx);
     if(s.kind==='ref'){
-      // tónica + acordes, seguidos. Sin cuenta atrás (es material de referencia).
+      // tónica + acordes. La referencia La->tónica ocupa ~2.6s; luego playChords añade su propia
+      // separación interna (startGap) antes de sonar el primer acorde, igual que el silencio La->tónica.
       setCardPlaying(idx,true);
       playTonicRef();
-      timers.push(setTimeout(()=>{ if(playing) playChords(); }, 2900));
-      timers.push(setTimeout(()=>finishPlayback(idx), 2900+4400));
+      timers.push(setTimeout(()=>{ if(playing) playChords(); }, 2700));
+      timers.push(setTimeout(()=>finishPlayback(idx), 2700+1600+4400));
     }
     else if(s.kind==='full'){ playWithCountdown(()=>playRange(0, DICTADO.measures.length, idx), idx); }
     else if(s.kind==='phrase'){ playWithCountdown(()=>playRange(s.phrase===1?0:4, s.phrase===1?4:8, idx), idx); }
@@ -4561,22 +6552,7 @@ const DSgen = (function(){
     if(!cd||!num){ onDone&&onDone(); return; }
     cd.classList.add('on');
     const pulseMs = beatSec()*1000;   // a velocidad de PULSO real del dictado
-    // claqueta sonora sincronizada con el 3·2·1 (3 ticks a tempo)
-    DSaudio.ensurePiano().then(()=>{
-      const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
-      const base=ac.currentTime+0.06;
-      for(let i=0;i<3;i++){
-        const t=base+i*beatSec();
-        const osc=ac.createOscillator(), g=ac.createGain();
-        osc.frequency.value = i===0?1000:800;
-        g.gain.setValueAtTime(0.0001,t);
-        g.gain.exponentialRampToValueAtTime(0.35,t+0.005);
-        g.gain.exponentialRampToValueAtTime(0.0001,t+0.12);
-        osc.connect(g).connect(ac.destination);
-        osc.start(t); osc.stop(t+0.14);
-        DSaudio.trackOsc(osc);
-      }
-    }).catch(()=>{});
+    // cuenta atrás silenciosa (sin claqueta)
     const seq=['3','2','1'];
     seq.forEach((txt,i)=>{ cdTimers.push(setTimeout(()=>{ num.textContent=txt; }, i*pulseMs)); });
     cdTimers.push(setTimeout(()=>{ clearCountdown(); onDone&&onDone(); }, seq.length*pulseMs));
@@ -4584,6 +6560,7 @@ const DSgen = (function(){
 
   function pistaMode(kind){
     if(playing) return;
+    if(hintsBlocked){ showQuizResult(false, 'Las pistas están bloqueadas porque fallaste un quiz de tonalidad o compás. No puedes usar más pistas en este dictado.'); return; }
     if(kind==='rit' && pistaRit!=null) return;  // ya gastada
     if(kind==='mel' && pistaMel!=null) return;
     pistaPick = (pistaPick===kind)? null : kind; // toggle
@@ -4676,12 +6653,286 @@ const DSgen = (function(){
     const layer=document.getElementById('pistaLayer'); if(layer){ layer.style.display='none'; layer.innerHTML=''; }
   }
   // revelar tonalidad / compás con confirmación
-  function askRevealKey(){ document.getElementById('revKeyModal').classList.add('show'); }
-  function confirmRevealKey(){ keyRevealed=true; document.getElementById('revKeyModal').classList.remove('show'); renderSeq(); redraw(); }
+  // ===== QUIZ DE TONALIDAD / COMPÁS CON RUEDAS =====
+  // Las pistas (4 botones rosas) se bloquean si el alumno falla el quiz.
+  let hintsBlocked = false;
+
+  // nombre legible de tonalidad
+  function keyDisplayName(keyCode){
+    const k = KEYS.find(x=>x.key===keyCode);
+    return k ? k.name : keyCode;
+  }
+  // nombre corto para la partitura: "Sol M", "La m", "Fa M"...
+  const SHORT_KEY = {
+    'C':'Do M','G':'Sol M','D':'Re M','F':'Fa M','Bb':'Si♭ M',
+    'Am':'La m','Em':'Mi m','Bm':'Si m','Dm':'Re m','Gm':'Sol m'
+  };
+  function shortKeyName(keyCode){ return SHORT_KEY[keyCode] || keyCode; }
+  // nº de alteraciones de una armadura (+n sostenidos, -n bemoles, 0 ninguna)
+  function keySigAlter(keySig){
+    const NS={ 'C':0,'G':1,'D':2,'A':3,'E':4,'B':5,'F#':6 };
+    const NF={ 'F':-1,'Bb':-2,'Eb':-3,'Ab':-4,'Db':-5,'Gb':-6 };
+    if(NS[keySig]!=null) return NS[keySig];
+    if(NF[keySig]!=null) return NF[keySig];
+    return 0;
+  }
+  // etiqueta de armadura a partir del nº de alteraciones
+  function armLabel(n){
+    if(n===0) return 'Sin armadura';
+    if(n>0) return n+' sostenido'+(n>1?'s':'');
+    return Math.abs(n)+' bemol'+(Math.abs(n)>1?'es':'');
+  }
+  // etiqueta corta con símbolos para la rueda: 0 -> "♮ (sin)", +1 -> "1 ♯", -1 -> "1 ♭"
+  function armLabelSym(n){
+    if(n===0) return 'Sin armadura';
+    if(n>0) return n+' ♯';
+    return Math.abs(n)+' ♭';
+  }
+  // tonalidades disponibles del curso activo (en orden de KEYS)
+  // nº de alteraciones con signo: +n sostenidos, -n bemoles, 0 ninguna (a partir de keySig)
+  function keyAlterSigned(keyCode){
+    const k=KEYS.find(x=>x.key===keyCode); if(!k) return 0;
+    return keySigAlter(k.keySig);
+  }
+  function courseKeyList(){
+    const cc = window.DS_COURSE_CFG;
+    const keys = (cc && cc.keys && cc.keys.length) ? cc.keys : ['C'];
+    const list = KEYS.filter(k=>keys.includes(k.key)).map(k=>k.key);
+    // ordenar como círculo de quintas en la rueda:
+    // arriba = más sostenidos, centro = 0 alteraciones, abajo = más bemoles.
+    // En caso de empate (mismo nº alteraciones, p.ej. Do M y La m), mayor antes que menor.
+    list.sort((a,b)=>{
+      const aa=keyAlterSigned(a), ab=keyAlterSigned(b);
+      if(aa!==ab) return ab-aa;   // mayor nº de sostenidos primero (arriba)
+      const am=KEYS.find(k=>k.key===a).mode, bm=KEYS.find(k=>k.key===b).mode;
+      if(am!==bm) return am==='major'?-1:1; // mayor antes que menor
+      return 0;
+    });
+    return list;
+  }
+
+  // rango de armaduras del selector según curso
+  function courseArmRange(){
+    const curso = window.DS_ACTIVE_COURSE||'';
+    if(curso==='ge4') return [-2,-1,0,1,2];   // hasta 2 alteraciones
+    return [-1,0,1];                          // ge3: hasta 1 alteración
+  }
+
+  // ---- construcción de una rueda ----
+  // items: array de {value, label}; devuelve función getValue()
+  // pequeño tick de audio al deslizar la rueda
+  function wheelTick(){
+    try{
+      const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
+      const t=ac.currentTime;
+      const osc=ac.createOscillator(), g=ac.createGain();
+      osc.frequency.value=520;
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.12,t+0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.05);
+      osc.connect(g).connect(ac.destination);
+      osc.start(t); osc.stop(t+0.06);
+    }catch(e){}
+  }
+
+  function buildWheel(elId, items, initialIndex){
+    const el = document.getElementById(elId);
+    if(!el) return ()=>null;
+    el.innerHTML='';
+    const pad1=document.createElement('div'); pad1.className='wheel-pad'; el.appendChild(pad1);
+    items.forEach((it,i)=>{
+      const d=document.createElement('div'); d.className='wheel-item'; d.textContent=it.label; d.dataset.idx=i;
+      el.appendChild(d);
+    });
+    const pad2=document.createElement('div'); pad2.className='wheel-pad'; el.appendChild(pad2);
+    // línea de selección
+    if(!el.parentNode.querySelector('.wheel-sel-line')){
+      const line=document.createElement('div'); line.className='wheel-sel-line'; el.parentNode.appendChild(line);
+    }
+    const ITEM_H=44;
+    let lastIdx=-1;
+    function update(){
+      const idx=Math.round(el.scrollTop/ITEM_H);
+      el.querySelectorAll('.wheel-item').forEach((n,i)=>{
+        n.classList.toggle('sel', i===idx);
+        const dist=Math.abs(i-idx);
+        n.classList.toggle('d1', dist===1);
+        n.classList.toggle('d2', dist>=2);
+      });
+      if(idx!==lastIdx){ if(lastIdx!==-1) wheelTick(); lastIdx=idx; }
+    }
+    let raf=null;
+    el.addEventListener('scroll', ()=>{ if(raf) cancelAnimationFrame(raf); raf=requestAnimationFrame(update); });
+    // posición inicial
+    setTimeout(()=>{ el.scrollTop = (initialIndex||0)*ITEM_H; lastIdx=Math.round(el.scrollTop/ITEM_H); update(); }, 30);
+    el._items=items; el._ITEM_H=ITEM_H;
+    return ()=>{ const idx=Math.round(el.scrollTop/ITEM_H); return items[Math.max(0,Math.min(items.length-1,idx))].value; };
+  }
+
+  let _getKeyVal=null, _getArmVal=null, _getTsVal=null;
+
+  // Fija una rueda en el índice cuyo value coincide, deshabilita scroll y la colorea (ok/ko)
+  function lockWheel(elId, value, isOk){
+    const el=document.getElementById(elId); if(!el) return;
+    const items=el._items||[]; const ITEM_H=el._ITEM_H||44;
+    let idx=items.findIndex(it=>it.value===value); if(idx<0) idx=0;
+    el.scrollTop=idx*ITEM_H;
+    el.querySelectorAll('.wheel-item').forEach((n,i)=>n.classList.toggle('sel', i===idx));
+    el.classList.add('locked', isOk?'ok':'ko');
+    el.style.overflowY='hidden'; el.style.pointerEvents='none';
+    const line=el.parentNode.querySelector('.wheel-sel-line');
+    if(line) line.classList.add(isOk?'ok':'ko');
+  }
+  function resetWheelLocks(){
+    document.querySelectorAll('.wheel').forEach(el=>{
+      el.classList.remove('locked','ok','ko'); el.style.overflowY='scroll'; el.style.pointerEvents='';
+    });
+    document.querySelectorAll('.wheel-sel-line').forEach(l=>l.classList.remove('ok','ko'));
+  }
+
+  function resetKeyModalUI(){
+    resetWheelLocks();
+    const fb=document.getElementById('keyFeedback'); if(fb){ fb.className='quiz-feedback'; fb.innerHTML=''; }
+    document.getElementById('keyModalRow').style.display='flex';
+    document.getElementById('keyAcceptRow').style.display='none';
+  }
+  function resetTsModalUI(){
+    resetWheelLocks();
+    const fb=document.getElementById('tsFeedback'); if(fb){ fb.className='quiz-feedback'; fb.innerHTML=''; }
+    document.getElementById('tsModalRow').style.display='flex';
+    document.getElementById('tsAcceptRow').style.display='none';
+  }
+
+  function askRevealKey(){
+    if(hintsBlocked){ showQuizResult(false, 'Las pistas están bloqueadas porque ya fallaste un quiz de tonalidad o compás. No puedes usar más pistas en este dictado.'); return; }
+    resetKeyModalUI();
+    const curso=window.DS_ACTIVE_COURSE||'';
+    // ge1: no debería existir el botón, pero por seguridad revelamos directo
+    if(curso==='ge1'){ keyRevealed=true; renderSeq(); redraw(); return; }
+    // construir rueda de tonalidades
+    const keyList=courseKeyList();
+    const keyItems=keyList.map(k=>({value:k, label:shortKeyName(k)}));
+    // por defecto, Do mayor en el centro (si está disponible); si no, la primera
+    let defIdx=keyList.indexOf('C'); if(defIdx<0) defIdx=0;
+    _getKeyVal=buildWheel('wheelKey', keyItems, defIdx);
+    // texto: nº máximo de alteraciones del curso
+    const avail=document.getElementById('keyAvailTxt');
+    if(avail){
+      const maxAlt=courseArmRange().reduce((m,n)=>Math.max(m,Math.abs(n)),0);
+      avail.textContent = maxAlt===0 ? 'Sin alteraciones'
+        : 'Tonalidades de hasta '+maxAlt+' alteración'+(maxAlt>1?'es':'');
+    }
+    // rueda de armadura (no para ge2)
+    const armBlock=document.getElementById('armWheelBlock');
+    if(curso==='ge2'){
+      if(armBlock) armBlock.style.display='none';
+      _getArmVal=null;
+    } else {
+      if(armBlock) armBlock.style.display='';
+      const range=courseArmRange();
+      const armItems=range.map(n=>({value:n, label:armLabelSym(n)}));
+      const zeroIdx=range.indexOf(0);
+      _getArmVal=buildWheel('wheelArm', armItems, zeroIdx<0?0:zeroIdx);
+    }
+    document.getElementById('revKeyModal').classList.add('show');
+  }
+
+  let _keyResultOk=false;  // resultado pendiente de aceptar
+  function confirmRevealKey(){
+    const curso=window.DS_ACTIVE_COURSE||'';
+    const guessKey=_getKeyVal?_getKeyVal():null;
+    const realKey=DICTADO.key;
+    const keyOk=(guessKey===realKey);
+    // armadura
+    let armOk=true, hasArm=(_getArmVal && curso!=='ge2');
+    let guessArm=null, realArm=keySigAlter(DICTADO.keySig);
+    if(hasArm){ guessArm=_getArmVal(); armOk=(guessArm===realArm); }
+    const allOk = keyOk && armOk;
+    _keyResultOk = allOk;
+
+    // colorear ruedas in-situ
+    lockWheel('wheelKey', realKey===guessKey?guessKey:guessKey, keyOk);
+    if(hasArm) lockWheel('wheelArm', guessArm, armOk);
+
+    // construir mensaje
+    const fb=document.getElementById('keyFeedback');
+    let msg='';
+    if(allOk){
+      msg='<strong>¡Muy bien!</strong> Tonalidad: <strong>'+shortKeyName(realKey)+'</strong>'+(hasArm?' · Armadura: <strong>'+armLabelSym(realArm)+'</strong>':'')+'.';
+      fb.className='quiz-feedback show ok';
+    } else {
+      // aclarar SOLO las respuestas correctas, en formato abreviado
+      let datos=[];
+      datos.push('Tonalidad: <strong>'+shortKeyName(realKey)+'</strong>');
+      if(hasArm) datos.push('Armadura: <strong>'+armLabelSym(realArm)+'</strong>');
+      let txt=datos.join(' · ');
+      txt+='<br><br>Al haber un fallo, el resto de pistas queda bloqueado para este dictado. No pasa nada: puedes seguir con los audios hasta terminar y comparar con la solución.';
+      msg=txt;
+      fb.className='quiz-feedback show ko';
+    }
+    fb.innerHTML=msg;
+    // cambiar botones: ocultar comprobar/cancelar, mostrar aceptar
+    document.getElementById('keyModalRow').style.display='none';
+    document.getElementById('keyAcceptRow').style.display='flex';
+  }
+  function acceptRevealKey(){
+    document.getElementById('revKeyModal').classList.remove('show');
+    if(!_keyResultOk){ hintsBlocked=true; markHintsBlocked(); }
+    // revelar tonalidad y armadura con fundido
+    keyRevealed=true; renderSeq(); redrawWithFade();
+  }
   function cancelRevealKey(){ document.getElementById('revKeyModal').classList.remove('show'); }
-  function askRevealTs(){ document.getElementById('revTsModal').classList.add('show'); }
-  function confirmRevealTs(){ tsRevealed=true; document.getElementById('revTsModal').classList.remove('show'); renderSeq(); redraw(); }
+
+  function askRevealTs(){
+    if(hintsBlocked){ showQuizResult(false, 'Las pistas están bloqueadas porque ya fallaste un quiz de tonalidad o compás. No puedes usar más pistas en este dictado.'); return; }
+    resetTsModalUI();
+    const meters=['2/4','3/4','6/8'];
+    const tsItems=meters.map(m=>({value:m, label:m}));
+    const cur=meters.indexOf(DICTADO.ts);
+    _getTsVal=buildWheel('wheelTs', tsItems, 0);
+    document.getElementById('revTsModal').classList.add('show');
+  }
+  let _tsResultOk=false;
+  function confirmRevealTs(){
+    const guess=_getTsVal?_getTsVal():null;
+    const real=DICTADO.ts;
+    const ok=(guess===real);
+    _tsResultOk=ok;
+    lockWheel('wheelTs', guess, ok);
+    const fb=document.getElementById('tsFeedback');
+    if(ok){
+      fb.className='quiz-feedback show ok';
+      fb.innerHTML='<strong>¡Muy bien!</strong> El compás es '+real+'.';
+    } else {
+      fb.className='quiz-feedback show ko';
+      fb.innerHTML='Compás: <strong>'+real+'</strong>.<br><br>Al haber un fallo, el resto de pistas queda bloqueado para este dictado. No pasa nada: puedes seguir con los audios hasta terminar y comparar con la solución.';
+    }
+    document.getElementById('tsModalRow').style.display='none';
+    document.getElementById('tsAcceptRow').style.display='flex';
+  }
+  function acceptRevealTs(){
+    document.getElementById('revTsModal').classList.remove('show');
+    if(!_tsResultOk){ hintsBlocked=true; markHintsBlocked(); }
+    tsRevealed=true; renderSeq(); redrawWithFade();
+  }
   function cancelRevealTs(){ document.getElementById('revTsModal').classList.remove('show'); }
+
+  // ---- resultado del quiz ----
+  function showQuizResult(ok, text){
+    document.getElementById('quizResTitle').textContent = ok ? '✓ ¡Bien hecho!' : '✗ Casi…';
+    document.getElementById('quizResText').textContent = text;
+    document.getElementById('quizResultModal').classList.add('show');
+  }
+  function closeQuizResult(){ document.getElementById('quizResultModal').classList.remove('show'); }
+
+  // ---- bloquear visualmente las 4 pistas ----
+  function markHintsBlocked(){
+    ['btnRevKey','btnRevTs','btnPistaRit','btnPistaMel'].forEach(id=>{
+      const b=document.getElementById(id);
+      // 'blocked' atenúa y quita el hover pero mantiene el click (para mostrar el cartel)
+      if(b){ b.classList.add('blocked'); }
+    });
+  }
 
   function solucion(){ document.getElementById('solModal').classList.add('show'); }
   function closeSolModal(){ document.getElementById('solModal').classList.remove('show'); }
@@ -4702,15 +6953,42 @@ const DSgen = (function(){
 
   function newDictado(){
     if(playing) stopPlayback();
-    DICTADO=genReal();
+    // ge2: solo biblioteca revisada, nunca motor.
+    const _curso = window.DS_ACTIVE_COURSE;
+    if(_curso === 'ge2'){
+      DICTADO = pickFromLibrary();
+      if(!DICTADO){ alert('No hay dictados disponibles para este curso todavía. Vuelve pronto.'); return; }
+    } else {
+      // Vista alumno: servir uno de la biblioteca (distinto al anterior). Si está vacía, usar el motor.
+      DICTADO = pickFromLibrary() || genReal();
+    }
     revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; keyRevealed=false; tsRevealed=false;
+    hintsBlocked=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
     SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
+    // desbloquear visualmente las pistas y aplicar visibilidad por curso
+    ['btnRevKey','btnRevTs','btnPistaRit','btnPistaMel'].forEach(id=>{ const b=document.getElementById(id); if(b){ b.classList.remove('spent'); b.classList.remove('blocked'); } });
+    updateHintButtonsForCourse();
     renderSeq(); redraw();
     // fundido de aparición del pentagrama
     const host=document.getElementById('dictScore');
     if(host && DICTADO){ host.classList.remove('fade-in'); void host.offsetWidth; host.classList.add('fade-in'); }
+  }
+
+  // ge1: no hay 'Revelar tonalidad' (siempre Do mayor) -> ocultar y que 'Revelar compás' ocupe los 2 espacios
+  function updateHintButtonsForCourse(){
+    const curso=window.DS_ACTIVE_COURSE||'';
+    const bk=document.getElementById('btnRevKey');
+    const bt=document.getElementById('btnRevTs');
+    if(!bk||!bt) return;
+    if(curso==='ge1'){
+      bk.style.display='none';
+      bt.style.flex='1';              // ocupa el espacio de los dos
+    } else {
+      bk.style.display='';
+      bt.style.flex='';
+    }
   }
 
   function clearDictado(){
@@ -4728,13 +7006,216 @@ const DSgen = (function(){
     setBpm(cur+delta);
   }
 
-  return { redraw, renderSeq, onSeq, pistaMode, solucion, closeSolModal, revealSolucion, newDictado, clearDictado, askRevealKey, confirmRevealKey, cancelRevealKey, askRevealTs, confirmRevealTs, cancelRevealTs, stopPlayback, setBpm, bumpBpm };
+  return { redraw, renderSeq, onSeq, pistaMode, solucion, closeSolModal, revealSolucion, newDictado, clearDictado, askRevealKey, confirmRevealKey, acceptRevealKey, cancelRevealKey, askRevealTs, confirmRevealTs, acceptRevealTs, cancelRevealTs, closeQuizResult, updateHintButtonsForCourse, stopPlayback, setBpm, bumpBpm,
+    // helpers para el mini-editor
+    revealAll(){ fullRevealed=true; keyRevealed=true; tsRevealed=true; redraw(); },
+    playOne(midi){ try{ stopPlayback(); }catch(e){} try{ const t=DSaudio.ctx().currentTime+0.03; playNote(midi, t, 0.7, false); }catch(e){} },
+    getDictado(){ return DICTADO; },
+    // dibuja un dictado (objeto) en miniatura dentro de targetEl (para la vista previa de la biblioteca)
+    renderThumbnail(dictObj, targetEl){
+      if(!dictObj || !targetEl) return;
+      try{
+        const VF=Vex.Flow;
+        [...targetEl.querySelectorAll('svg')].forEach(s=>s.remove());
+        // ancho FIJO (no dependemos de clientWidth, que puede ser 0 al abrir el modal);
+        // el CSS escala el SVG dentro del recuadro con viewBox + max-width:100%.
+        const W=980;
+        const sysGap=78, topY=14, H=topY+sysGap*2+34;  // +margen abajo para plicas/notas graves
+        const renderer=new VF.Renderer(targetEl, VF.Renderer.Backends.SVG);
+        renderer.resize(W,H);
+        const ctx=renderer.getContext();
+        ctx.setFillStyle('#0b1220'); ctx.setStrokeStyle('#0b1220');
+        const startX=2, usable=W-startX-4;
+        const DB={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75,'hd':3};
+        const isBass=dictObj.clef==='bass';
+        const measures=dictObj.measures||[];
+        const bpb=dictObj.beatsPerBar;
+        const PB=dictObj.pulseFig==='qd'?1.5:1;
+        function figCount(m){ return Math.max(1, m.notes.length); }
+        for(let sys=0; sys<2; sys++){
+          const y=topY+sys*sysGap;
+          const idxs=[0,1,2,3].map(mi=>sys*4+mi);
+          if(idxs.some(i=>!measures[i])) continue;
+          const counts=idxs.map(mi=>figCount(measures[mi]));
+          const sumC=counts.reduce((a,b)=>a+b,0)||1;
+          const extraFirst=34+(dictObj.keySig&&dictObj.keySig!=='C'?12:0)+(sys===0?18:0);
+          const avail=usable-extraFirst, eqPart=avail*0.55/4, propPart=avail*0.45;
+          let x=startX;
+          for(let mi=0; mi<4; mi++){
+            const measIdx=idxs[mi];
+            let w=eqPart+propPart*(counts[mi]/sumC); if(mi===0) w+=extraFirst;
+            const stave=new VF.Stave(x,y,w);
+            if(mi===0){ stave.addClef(isBass?'bass':'treble'); if(dictObj.keySig&&dictObj.keySig!=='C') stave.addKeySignature(dictObj.keySig); if(sys===0) stave.addTimeSignature(dictObj.ts); }
+            if(measIdx===7) stave.setEndBarType(VF.Barline.type.END);
+            stave.setContext(ctx).draw();
+            // notas (con corchetes agrupados por pulso y dirección de plicas según la altura)
+            try{
+              const meas=measures[measIdx];
+              const [num,den]=dictObj.ts.split('/').map(n=>parseInt(n,10));
+              const vfn=[];   // {sn, tok, midi}
+              const accInBarT={};   // alteración vigente por nota (letra+octava) en este compás
+              const ksOf=(typeof keySigAccidentalFor==='function')?keySigAccidentalFor:null;
+              meas.notes.forEach(n=>{
+                const durTok=(n.dur==='full')?(PB===1.5?'qd':'q'):(n.d||'q').replace('r','');
+                const rest=(n.d||'').includes('r');
+                const restKey=isBass?'b/2':'b/4';
+                const key=rest?restKey:(n.k||'b/4');
+                const sn=new VF.StaveNote({keys:[key], duration:durTok+(rest?'r':''), clef:isBass?'bass':'treble', stem_direction:1});
+                if((''+durTok).includes('d')) sn.addModifier(new VF.Dot(),0);
+                if(!rest){
+                  const head=(n.k||'').split('/')[0];
+                  const letter=head[0];
+                  const accChar=head.slice(1);
+                  const noteAcc = accChar==='#'?'#':(accChar==='b'?'b':'');
+                  const octave=(n.k||'').split('/')[1]||'4';
+                  const noteId=letter+'/'+octave;
+                  const ksAcc = ksOf ? ksOf(dictObj.keySig, letter) : '';
+                  const carried = (accInBarT[noteId]!==undefined)?accInBarT[noteId]:ksAcc;
+                  const carriedSign = (carried==='n')?'':carried;
+                  if(noteAcc!==carriedSign){
+                    const show=noteAcc||'n';
+                    sn.addModifier(new VF.Accidental(show),0);
+                    accInBarT[noteId]=show;
+                  }
+                }
+                vfn.push({sn, tok:n, rest, midi:rest?null:n.midi});
+              });
+              // agrupar corcheas/semicorcheas consecutivas DENTRO de cada pulso -> un solo corchete
+              const DBm={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+              const groups=[]; let run=[]; let pos=0; let curPulse=0;
+              const flush=()=>{ if(run.length>=2) groups.push(run.slice()); run=[]; };
+              vfn.forEach((o,i)=>{
+                const base=(o.tok.d||'').replace('r','').replace('d','');
+                const db=(o.tok.dur==='full'?num*(4/den):(DBm[(o.tok.d||'').replace('r','')]||1));
+                const thisPulse=Math.floor(pos/PB+1e-9);
+                if(thisPulse!==curPulse){ flush(); curPulse=thisPulse; }
+                if((base==='8'||base==='16') && !o.rest){ run.push(o); } else { flush(); }
+                pos+=db;
+              });
+              flush();
+              // dirección de plicas: clave sol -> Si4=71; clave fa -> Si2=47. >= medio: plica abajo.
+              const MID=isBass?47:71;
+              const dirForMidi=(m)=> (m>=MID)?-1:1;
+              const setDir=(sn,d)=>{ try{ sn.setStemDirection(d); }catch(e){} };
+              const inGroup=new Set();
+              groups.forEach(g=>{
+                let up=0,down=0;
+                g.forEach(o=>{ if(o.midi==null) return; (dirForMidi(o.midi)===1)?up++:down++; });
+                const d=(down>=up)?-1:1;
+                g.forEach(o=>{ setDir(o.sn,d); inGroup.add(o.sn); });
+              });
+              vfn.forEach(o=>{ if(inGroup.has(o.sn)||o.midi==null) return; setDir(o.sn, dirForMidi(o.midi)); });
+              // crear beams con la dirección ya fijada (auto_stem false)
+              const beams=[];
+              groups.forEach(g=>{ try{ beams.push(new VF.Beam(g.map(o=>o.sn), false)); }catch(e){} });
+              const voice=new VF.Voice({num_beats:num, beat_value:den, resolution:VF.RESOLUTION}).setStrict(false);
+              voice.addTickables(vfn.map(o=>o.sn));
+              const fmt=new VF.Formatter().joinVoices([voice]);
+              try{ fmt.formatToStave([voice], stave); }
+              catch(e){ fmt.format([voice], Math.max(40, w-(mi===0?44:14))); }
+              voice.draw(ctx, stave);
+              beams.forEach(b=>{ try{ b.setContext(ctx).draw(); }catch(e){} });
+            }catch(e){}
+            x+=w;
+          }
+        }
+      }catch(e){ /* miniatura best-effort */ }
+    },
+    // reproduce el dictado completo sin cuenta atrás ni gastar escuchas (para el editor)
+    playEditor(){
+      if(!DICTADO){ return; }
+      if(playing){ stopPlayback(); return; }
+      const ac=DSaudio.ctx();
+      // ¿hay una nota seleccionada? -> empezar desde ahí (compás y nota)
+      let fromMeas=0, fromNote=0;
+      try{
+        const selPos = (window.DSedit && DSedit.getSelection) ? DSedit.getSelection() : null;
+        if(selPos){ fromMeas=selPos.measIdx; fromNote=selPos.noteIdx; }
+      }catch(e){}
+      const startSeq=()=>{
+        DSaudio.ensurePiano().then(p=>{
+          playing=true;
+          const bpb=DICTADO.beatsPerBar;
+          const PB=(DICTADO.pulseFig==='qd'?1.5:1);
+          const t0=ac.currentTime+0.08;
+          let cursor=t0;
+          for(let mi=fromMeas; mi<DICTADO.measures.length; mi++){
+            const meas=DICTADO.measures[mi];
+            const tdefs=meas._tuplets||[];
+            // posición (en negras) de inicio del compás; en el primer compás saltamos
+            // el tiempo de las notas anteriores a la nota de inicio
+            let beatPos=0;
+            let skipBeats=0;
+            if(mi===fromMeas){
+              for(let k=0;k<fromNote;k++){
+                const nk=meas.notes[k];
+                let dk=(nk.dur==='full')?bpb*PB:(DUR_BEATS[(nk.d||'').replace('r','')]||1);
+                tdefs.forEach(tp=>{ if(k>=tp.start && k<tp.start+tp.def.first){ dk=dk*(tp.def.notes/tp.def.num); } });
+                skipBeats+=dk;
+              }
+            }
+            for(let ni=(mi===fromMeas?fromNote:0); ni<meas.notes.length; ni++){
+              const n=meas.notes[ni];
+              const rest=(n.d||'').includes('r');
+              let db=(n.dur==='full')?bpb*PB:(DUR_BEATS[(n.d||'').replace('r','')]||1);
+              let realDb=db;
+              tdefs.forEach(tp=>{ if(ni>=tp.start && ni<tp.start+tp.def.first){ realDb=db*(tp.def.notes/tp.def.num); } });
+              if(!rest){
+                const when=cursor+(beatPos)*negraSec();
+                const dur=Math.max(0.12, realDb*negraSec()*0.95);
+                const node=p.play(n.midi, when, {duration:dur, gain:1.2});
+                DSaudio.track(node);
+                const delay=(when-ac.currentTime)*1000;
+                timers.push(setTimeout(()=>{
+                  if(playing && window.DSedit && DSedit.highlightEditNote) DSedit.highlightEditNote(mi, ni);
+                }, Math.max(0,delay)));
+              }
+              beatPos+=realDb;
+            }
+            // avanzar el cursor: el compás de inicio dura solo lo que queda tras la nota de inicio
+            cursor += (bpb*PB - skipBeats)*negraSec();
+          }
+          const endMs=(cursor-ac.currentTime)*1000;
+          timers.push(setTimeout(()=>{ playing=false; }, endMs+50));
+        }).catch(e=>{ playing=false; console.warn('playEditor:', e); });
+      };
+      if(ac.state==='suspended'){ ac.resume().then(startSeq).catch(startSeq); }
+      else startSeq();
+    },
+    // genera un dictado NUEVO con el motor (para el editor "Registrar nuevo dictado"),
+    // sin tocar la biblioteca ni la regla de "no repetir" del alumno.
+    genFromMotor(){
+      if(playing) stopPlayback();
+      DICTADO=genReal();  // genReal ya incluye el 30% de bass clef para ge3/ge4
+      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; keyRevealed=true; tsRevealed=true;
+      disablePistaPicking();
+      const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
+      SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
+      renderSeq(); redraw();
+      return DICTADO;
+    },
+    // carga un dictado existente (de la biblioteca) en el editor para revisarlo/editarlo
+    loadDictadoForEdit(dictadoObj){
+      if(playing) stopPlayback();
+      // clonar para no mutar la biblioteca hasta que se registre de nuevo
+      DICTADO = JSON.parse(JSON.stringify(dictadoObj));
+      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; keyRevealed=true; tsRevealed=true;
+      disablePistaPicking();
+      const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
+      SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
+      renderSeq(); redraw();
+      return DICTADO;
+    }
+  };
 })();
+window.DSgen = DSgen;   // exponer para los onclick del HTML y para DSedit/DSmanage
 
 window.addEventListener('load', ()=>{
   // NO generar hasta que el usuario elija curso en el gate (setActiveCourse lo hará).
   // Solo dejamos el lienzo listo; el primer dictado se crea al seleccionar curso.
   try{ DSgen.renderSeq(); DSgen.redraw(); }catch(e){}
+  // cargar la biblioteca de dictados desde Supabase (si falla, se sigue con los locales)
+  try{ if(typeof loadDictadosFromSupabase==='function') loadDictadosFromSupabase(); }catch(e){}
 });
 let _rt;
 window.addEventListener('resize', ()=>{ clearTimeout(_rt); _rt=setTimeout(()=>DSgen.redraw(),150); });
@@ -4864,7 +7345,7 @@ const DSval = (function(){
         const measIdx=idxs[mi];
         let w=eqPart+propPart*(counts[mi]/sumC); if(mi===0) w+=extraFirst;
         const stave=new VF.Stave(x,y,w);
-        if(mi===0){ stave.addClef('treble'); if(DICT.keySig&&DICT.keySig!=='C') stave.addKeySignature(DICT.keySig); if(sys===0) stave.addTimeSignature(DICT.ts); }
+        if(mi===0){ const _isBass=DICT.clef==='bass'; stave.addClef(_isBass?'bass':'treble'); if(DICT.keySig&&DICT.keySig!=='C') stave.addKeySignature(DICT.keySig); if(sys===0) stave.addTimeSignature(DICT.ts); }
         if(measIdx===7) stave.setEndBarType(VF.Barline.type.END);
         stave.setContext(ctx).draw();
         drawNotes(ctx, stave, DICT.measures[measIdx], DICT.ts);
@@ -4880,9 +7361,10 @@ const DSval = (function(){
     const vfnotes=[];
     meas.notes.forEach(n=>{
       const durTok=n.d, dur=durTok.replace('d','').replace('r',''), rest=durTok.includes('r');
-      const key=rest?'b/4':n.k;
-      const sn=new VF.StaveNote({keys:[key], duration:dur+(rest?'r':''), stem_direction:1});
-      if(durTok.includes('d')&&!rest) sn.addModifier(new VF.Dot(),0);
+      const _exportBass = DICT && DICT.clef==='bass';
+      const key=rest?(_exportBass?'b/2':'b/4'):n.k;
+      const sn=new VF.StaveNote({keys:[key], duration:dur+(rest?'r':''), clef:_exportBass?'bass':'treble', stem_direction:1});
+      if(durTok.includes('d')) sn.addModifier(new VF.Dot(),0);  // puntillo también en silencios
       if(!rest && n.alt){ const acc=n.alt==='#'?'#':(n.alt==='n'?'n':'b'); sn.addModifier(new VF.Accidental(acc),0); }
       vfnotes.push({sn,tok:n});
     });
