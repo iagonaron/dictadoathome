@@ -3322,6 +3322,32 @@ function generateDictado(active, opts){
     }
   })();
 
+  // === NORMA: tras un grupo de 6 semicorcheas, el pulso siguiente no empieza con semicorchea (GE) ===
+  (function noSemisAfterSixteenthsGE(){
+    const ternary=(ts==='6/8'||ts==='3/8'||ts==='9/8');
+    const pulseTok = ternary ? 'qd' : 'q';
+    const _DB={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+    const PB = ternary ? 1.5 : 1;
+    measures.forEach((meas,mi)=>{
+      if(mi===0 || mi===3 || mi===4 || mi===7) return;  // cierres / inicios: no tocar
+      const notes=meas.notes; if(!notes) return;
+      let acc=0, cur=[], cp=0; const ps=[];
+      notes.forEach(n=>{ const p=Math.floor(acc/PB+1e-6); if(p!==cp){ ps.push(cur); cur=[]; cp=p; } cur.push(n); acc+=_DB[(n.d||'').replace('r','')]||0; });
+      if(cur.length) ps.push(cur);
+      const isSix=(seq)=>seq.length===6 && seq.every(n=>n.d==='16' && !n.rest);
+      const startsSemi=(seq)=>seq.length && seq[0].d==='16' && !seq[0].rest;
+      let changed=false;
+      for(let k=0;k<ps.length-1;k++){
+        if(isSix(ps[k]) && startsSemi(ps[k+1])){
+          const head=ps[k+1][0];
+          ps[k+1]=[{ d:pulseTok, k:head.k, midi:head.midi, deg:head.deg }];
+          changed=true;
+        }
+      }
+      if(changed){ const flat=[]; ps.forEach(seq=>seq.forEach(n=>flat.push(n))); meas.notes=flat; }
+    });
+  })();
+
   return {
     key:k.key, name:k.name, mode:k.mode, keySig:k.keySig, tonicMidi:k.tonicMidi,
     harmonyBarPlan: harmonyBarPlan,
@@ -4117,13 +4143,14 @@ function buildRitLaws(){
       'En cada dictado una voz es la PROTAGONISTA (más activa) y la otra la PASIVA. La protagonista es la de sol el 75% de los dictados y la de fa el 25%.',
       'Regla fundamental pulso a pulso: en cada pulso una voz se mueve y la otra está en reposo (figura de pulso). Nunca las dos quietas a la vez (salvo en los cierres).',
       '1º GP — cuando la protagonista se mueve, la pasiva va estrictamente a figura de pulso. Cuando la protagonista reposa, la pasiva usa negras, corcheas y combinaciones ocasionales, pero SIN semicorcheas (nada del nivel de 3º GE).',
-      '2º GP — cuando la protagonista se mueve, la pasiva puede ir a figura de pulso o con combinaciones suaves de negras y corcheas (sin semicorcheas). Cuando la protagonista reposa, la pasiva se activa con ritmos puntuales y ocasionales (semicorcheas incluidas).',
+      '2º GP — cuando la protagonista se mueve, la pasiva va mayoritariamente a figura de pulso y solo a veces con combinaciones suaves de negras y corcheas (sin semicorcheas), para no recargar la textura. Cuando la protagonista reposa, la pasiva se activa con ritmos puntuales y ocasionales (semicorcheas incluidas).',
       'Cierre de semifrase (compases 2 y 6): la protagonista mueve el primer pulso y hace figura de pulso (reposo) en el último pulso. En 2/4 y 6/8 el reposo cae en el 2º pulso; en 3/4 y 9/8, en el 3er pulso.',
       'Cierre de frase (compases 4 y 8): ambas voces reposan — figura de pulso en el primer pulso y silencio el resto. El compás 4 admite un breve puente de la voz pasiva hacia la segunda frase.',
       'Material rítmico: 1º GP hereda las células activas de 3º GE; 2º GP hereda las de 4º GE, con sus frecuencias configuradas en el catálogo de células.',
       'Excepción en 3/4 y 9/8: la voz protagonista usa un material rítmico de un curso por debajo (1º GP → 2º GE, 2º GP → 3º GE), porque el compás de tres pulsos resulta más exigente. La voz pasiva mantiene su material habitual.',
       'La síncopa breve (semicorchea-corchea-semicorchea) aparece como máximo una vez por sistema en cada voz, y solo en 2º GP (en 1º GP no aparece).',
-      'Tonalidades: 1º GP de 0 a 4 alteraciones; 2º GP de 1 a 5. Mayores y menores (las menores se escriben con la armadura de su relativo mayor).',
+      'En 6/8 y 9/8, la voz pasiva evita la célula corchea-negra cuando la voz protagonista se mueve (aunque sea una combinación de negras y corcheas, resulta confusa como acompañamiento).',
+      'Tonalidades: 1º GP de 0 a 4 alteraciones; 2º GP de 1 a 4. Mayores y menores (las menores se escriben con la armadura de su relativo mayor).',
       'Compases: 1º GP usa 2/4, 3/4 y 6/8; 2º GP añade 9/8 (con baja probabilidad).',
       'En 3/4 la voz protagonista se mueve algo menos que en el resto de compases (los tres pulsos cargan mucho), para que el dictado no resulte excesivamente difícil.',
       'Cada voz escribe SUS PROPIOS silencios de forma independiente: si una voz calla en un pulso, ese silencio se escribe en su clave, coincida o no con la otra voz.',
@@ -4141,6 +4168,7 @@ function buildRitLaws(){
     {t:'Arranque y variedad', items:[
       'No se empieza un compás con dos pulsos de ritmo idéntico; en general, se evita repetir el mismo patrón rítmico en dos pulsos seguidos del mismo compás.',
       'Norma global (todos los cursos): un mismo ritmo de pulso no puede repetirse tres veces seguidas dentro de una voz (los silencios no cuentan ni rompen la racha; los compases de cierre e inicio de frase no se ven afectados).',
+      'Norma global: tras un grupo de seis semicorcheas, el pulso siguiente no puede empezar con semicorchea (evita acumular semicorcheas a caballo entre dos pulsos).',
       'En 6/8, los compases 1 y 5 arrancan con negra con puntillo en el primer pulso y tres corcheas o negra+corchea en el segundo; un 10% de las veces salen seis corcheas (y entonces la melodía sube y baja, no va recta).',
       'En 3/4, cada compás interior tiene al menos un pulso de negra; los compases 4 y 8 son la excepción (pueden llevar blanca con puntillo, blanca + silencio, etc.).'
     ]},
@@ -4386,7 +4414,7 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     isGP:true, voices:2, harmonyLevel:'extra', protagonist:{g:0.75,f:0.25},
     rhythmCourse:'ge4',                       // protagonista nivel 4º GE
     passiveMix:true,                          // voz pasiva con mezcla base+recurrente
-    maxAcc:5, minAcc:1,
+    maxAcc:4, minAcc:1,
     meters: {'2/4':true,'3/4':true,'4/4':false,'3/8':false,'6/8':true,'9/8':true},
   };
 
@@ -4842,6 +4870,29 @@ var DSedit = (function(){
   let mode=null;         // 'alturas' | 'ritmo'
   let sel=null;          // nota seleccionada en modo alturas: {measIdx, noteIdx}
   let useFlatsForEnh=false;
+  // historial de deshacer (Cmd/Ctrl+Z): copias del dictado antes de cada edición.
+  let undoStack=[];
+  const UNDO_MAX=40;
+  function pushUndo(){
+    try{
+      const D=DSgen.getDictado(); if(!D) return;
+      undoStack.push(JSON.stringify(D));
+      if(undoStack.length>UNDO_MAX) undoStack.shift();
+    }catch(e){}
+  }
+  function undo(){
+    if(!on) return;
+    if(!undoStack.length){ return; }
+    try{
+      const snap=undoStack.pop();
+      const restored=JSON.parse(snap);
+      if(window.DSgen && DSgen.setDictado){ DSgen.setDictado(restored); }
+      sel=null;
+      DSgen.redraw();
+      if(mode==='ritmo'){ setTimeout(()=>{ try{ armRhythmMode(); }catch(e){} }, 30); }
+    }catch(e){ console.warn('undo:', e); }
+  }
+  function clearUndo(){ undoStack=[]; }
 
   function isPunt(){ const D=DSgen.getDictado(); return !!(D&&D.pulseFig==='qd'); }
 
@@ -5059,6 +5110,7 @@ var DSedit = (function(){
   // mover la nota seleccionada ±1 semitono
   function nudge(delta){
     if(!sel) return;
+    pushUndo();
     const D=DSgen.getDictado(); const n=noteAt(D, sel);
     if(!n || n.midi==null){
       // GP: si la figura aún no tiene altura (esqueleto), inicializarla en la tónica al pinchar
@@ -5082,6 +5134,7 @@ var DSedit = (function(){
     if(!sel) return;
     const D=DSgen.getDictado(); const n=noteAt(D, sel);
     if(!n || n.midi==null) return;
+    pushUndo();
     // Calcular las dos grafías posibles para este midi: con sostenido y con bemol.
     // midiToVexKey devuelve {key, hasAcc}; nos quedamos con .key.
     const sharp = midiToVexKey(n.midi, false).key;   // p.ej. 'g#/4'
@@ -5124,7 +5177,12 @@ var DSedit = (function(){
       return { y: yCenter-34, h: 68 };
     }
 
-    D.measures.forEach((meas,mi)=>{
+    // procesar las DOS voces (sol y fa). Cada voz tiene su array de compases y sus
+    // registros en DS_EDIT_NOTES marcados con r.voice.
+    const voices=[{name:'sol', arr:D.measures}];
+    if(D.measuresFa) voices.push({name:'fa', arr:D.measuresFa});
+    voices.forEach(V=>{
+    (V.arr||[]).forEach((meas,mi)=>{
       let acc=0; const starts=[], durP=[];
       const tf=new Array(meas.notes.length).fill(1);
       (meas._tuplets||[]).forEach(tp=>{ const f=tp.def?(tp.def.notes/tp.def.num):(2/3); for(let q=tp.start;q<tp.start+(tp.def?tp.def.first:3);q++){ if(q<tf.length) tf[q]=f; } });
@@ -5136,21 +5194,20 @@ var DSedit = (function(){
         const idxs=[]; meas.notes.forEach((n,qi)=>{ if(starts[qi]>=p*PB-1e-9 && starts[qi]<(p+1)*PB-1e-9) idxs.push(qi); });
         pulseIdxs.push(idxs);
       }
-      function firstXof(p){ const idxs=pulseIdxs[p]; if(!idxs||!idxs.length) return null; const b=bboxOf(notes.find(r=>r.measIdx===mi&&r.noteIdx===idxs[0])); return b?b.x:null; }
+      // los registros de notas se filtran por voz
+      const recOf=(qi)=> notes.find(r=>r.measIdx===mi && r.noteIdx===qi && (r.voice||'sol')===V.name);
+      function firstXof(p){ const idxs=pulseIdxs[p]; if(!idxs||!idxs.length) return null; const b=bboxOf(recOf(idxs[0])); return b?b.x:null; }
 
       for(let p=0;p<D.beatsPerBar;p++){
         const idxs=pulseIdxs[p]; if(!idxs||!idxs.length) continue;
-        // bloquear pulsos con figuras de más de 1 pulso (blancas, síncopas a caballo, etc.)
         const sumP=idxs.reduce((s,qi)=>s+durP[qi],0);
         const anyLong=idxs.some(qi=>durP[qi]>1+1e-9);
         if(anyLong || sumP>1+1e-9) continue;
-        const recs=idxs.map(qi=>notes.find(r=>r.measIdx===mi && r.noteIdx===qi)).filter(r=>r&&r.el);
+        const recs=idxs.map(qi=>recOf(qi)).filter(r=>r&&r.el);
         if(!recs.length) continue;
-        // límites del recuadro: de la 1ª nota del pulso al inicio del pulso siguiente (o fin de las notas)
         let x0=Infinity, x1=-Infinity, yMin=Infinity, yMax=-Infinity;
         recs.forEach(r=>{ const b=bboxOf(r); if(!b) return; x0=Math.min(x0,b.x); x1=Math.max(x1,b.x+b.width); yMin=Math.min(yMin,b.y); yMax=Math.max(yMax,b.y+b.height); });
         if(!isFinite(x0)) continue;
-        // borde derecho hasta el inicio del siguiente pulso con notas
         let xNext=null;
         for(let q=p+1;q<D.beatsPerBar;q++){ const xs=firstXof(q); if(xs!=null){ xNext=xs; break; } }
         const right = (xNext!=null)? xNext-2 : x1+6;
@@ -5167,29 +5224,38 @@ var DSedit = (function(){
         rect.style.cursor='pointer'; rect.style.transition='fill .12s';
         rect.addEventListener('mouseenter',()=>rect.setAttribute('fill','rgba(34,201,138,.26)'));
         rect.addEventListener('mouseleave',()=>rect.setAttribute('fill','rgba(34,201,138,.12)'));
-        rect.addEventListener('click',(e)=>{ e.stopPropagation(); openCellPicker(mi,p,idxs); });
+        rect.addEventListener('click',(e)=>{ e.stopPropagation(); openCellPicker(mi,p,idxs,V.name); });
         svg.appendChild(rect);
       }
+    });
     });
   }
 
   // sustituir el pulso (mi, p) por una célula nueva, manteniendo alturas existentes
-  function applyCell(mi, p, idxs, cell){
+  function applyCell(mi, p, idxs, cell, voice){
    try{
+    pushUndo();
     const D=DSgen.getDictado();
-    const meas=D.measures[mi];
-    const oldNotes=idxs.map(qi=>meas.notes[qi]);  // notas que había en el pulso
+    if(!D){ throw new Error('no hay dictado'); }
+    const arr = ((voice||'sol')==='fa' && D.measuresFa) ? D.measuresFa : D.measures;
+    const meas = arr && arr[mi];
+    if(!meas || !meas.notes){ throw new Error('compás no encontrado (voz '+(voice||'sol')+', compás '+mi+')'); }
+    if(!Array.isArray(idxs) || !idxs.length){ throw new Error('pulso sin índices'); }
+    if(!cell || !cell.notes){ throw new Error('célula sin notas'); }
+    const oldNotes=idxs.map(qi=>meas.notes[qi]).filter(x=>x!=null);  // notas que había en el pulso
     // construir las notas nuevas a partir de la célula
-    const useFlats=['F','Bb','Dm','Gm'].includes(D.key);
     const newNotes=cell.notes.map((tok,k)=>{
       const d=(typeof tok==='object')? tok.d : tok;
       const isRest=(''+d).includes('r');
       if(isRest) return { rest:true, d:d };
       // altura: reutilizar la de la antigua en misma posición; si no hay, neutra (Si4=71)
-      const src=oldNotes[k] && !oldNotes[k].rest ? oldNotes[k] : null;
-      const midi = src? src.midi : 71;            // 71 = Si4 (3ª línea, neutra)
-      const vk=midiToVexKey(midi, false, D.keySig);   // grafía según la tonalidad
-      return { k:vk.key, midi, d:d, alt:accOfKey(vk.key) };
+      const src=(oldNotes[k] && !oldNotes[k].rest) ? oldNotes[k] : null;
+      const midi = (src && src.midi!=null) ? src.midi : 71;            // 71 = Si4 (3ª línea, neutra)
+      let key, alt=null;
+      try{ const vk=midiToVexKey(midi, false, D.keySig); key=(vk&&vk.key)?vk.key:(typeof vk==='string'?vk:'b/4'); }
+      catch(e){ key='b/4'; }
+      try{ alt=accOfKey(key); }catch(e){ alt=null; }
+      return { k:key, midi, d:d, alt };
     });
     // reemplazar en el array de notas del compás
     const first=idxs[0], count=idxs.length;
@@ -5203,7 +5269,6 @@ var DSedit = (function(){
     }
     closeCellPicker();
     DSgen.redraw();
-    // re-armar los marcadores de pulso tras el redibujado (espera a que el SVG esté listo)
     if(on && mode==='ritmo'){ setTimeout(()=>{ try{ armRhythmMode(); }catch(e){} }, 30); }
    }catch(err){
     alert('No se pudo aplicar la célula: '+(err&&err.message?err.message:err));
@@ -5212,13 +5277,13 @@ var DSedit = (function(){
 
   // selector de células de 1 pulso compatibles con el compás actual
   let pickerCtx=null;
-  function openCellPicker(mi,p,idxs){
+  function openCellPicker(mi,p,idxs,voice){
     const D=DSgen.getDictado();
     const block = (D.ts==='6/8'||D.ts==='3/8'||D.ts==='9/8') ? 'ternario' : 'binario';
     const cat = window.DS && window.DS.catalog;
     const CELLS = cat? cat.CELLS : [];
     const cells = CELLS.filter(c=> c.pulses===1 && c.block===block && !(c.onlyTS && c.onlyTS!==D.ts) && !(c.notTS && c.notTS===D.ts));
-    pickerCtx={mi,p,idxs};
+    pickerCtx={mi,p,idxs,voice:voice||'sol'};
     const grid=document.getElementById('cellPickGrid');
     grid.innerHTML='';
     cells.forEach(c=>{
@@ -5226,9 +5291,8 @@ var DSedit = (function(){
       b.className='cellpick-item';
       const holder=document.createElement('div'); holder.className='cp-vex';
       b.appendChild(holder);
-      b.onclick=()=>applyCell(mi,p,idxs,c);
+      b.onclick=()=>applyCell(mi,p,idxs,c,voice||'sol');
       grid.appendChild(b);
-      // render diferido para que el contenedor tenga tamaño
       setTimeout(()=>renderCellPreview(holder, c, D.ts), 0);
     });
     document.getElementById('cellPickModal').style.display='flex';
@@ -5302,6 +5366,8 @@ var DSedit = (function(){
   // reproducir el dictado completo desde el editor (sin cuenta atrás, sin gastar escuchas)
   function playDictado(){
     if(!on) return;
+    // si hay una nota seleccionada, reproduce desde ahí; si no, desde el principio.
+    // (playEditor ya empieza desde la selección cuando existe, y desde el inicio si no)
     try{ if(window.DSgen) window.DSgen.playEditor(); }
     catch(e){ console.warn('playDictado:', e); }
   }
@@ -5313,6 +5379,10 @@ var DSedit = (function(){
       const tgt=e.target;
       const isField = tgt && tgt.matches && tgt.matches('input,textarea,select,[contenteditable]');
       // Espacio: play/stop (independiente del modo). e.code es más fiable que e.key.
+      // Cmd/Ctrl+Z: deshacer la última edición
+      if((e.metaKey||e.ctrlKey) && (e.key==='z'||e.key==='Z') && !e.shiftKey && !isField){
+        e.preventDefault(); e.stopPropagation(); undo(); return;
+      }
       if((e.code==='Space' || e.key===' ' || e.key==='Spacebar') && !isField){
         e.preventDefault(); e.stopPropagation(); playDictado(); return;
       }
@@ -5356,6 +5426,7 @@ var DSedit = (function(){
     if(!D || !sel) return;
     const n = noteAt(D, sel);
     if(!n) return;
+    pushUndo();
     if(n.midi == null){ if(D.gp){ delete n.noHead; } else return; }
     n.midi = midi;
     const vk = midiToVexKey(midi, false, D.keySig);
@@ -5487,13 +5558,13 @@ var DSedit = (function(){
   }
 
   // devuelve la nota seleccionada actual {measIdx, noteIdx} o null
-  function getSelection(){ return sel ? {measIdx:sel.measIdx, noteIdx:sel.noteIdx} : null; }
+  function getSelection(){ return sel ? {measIdx:sel.measIdx, noteIdx:sel.noteIdx, voice:(sel.voice||'sol')} : null; }
   // resalta visualmente una nota por posición (para acompañar la reproducción)
   function highlightEditNote(measIdx, noteIdx){
     const rec=(window.DS_EDIT_NOTES||[]).find(r=>r.measIdx===measIdx && r.noteIdx===noteIdx);
     if(rec){ drawSelBox(rec); }
   }
-  return { open, check, cancel, enter, exit, setMode, enharmonic, nudge, closeCellPicker, exportNow, trainingReport, rollNew, registrarNow, updateCount, playDictado, setEditingId, confirmReplace, cancelReplace, getSelection, highlightEditNote };
+  return { open, check, cancel, enter, exit, setMode, enharmonic, nudge, closeCellPicker, exportNow, trainingReport, rollNew, registrarNow, updateCount, playDictado, setEditingId, confirmReplace, cancelReplace, getSelection, highlightEditNote, clearUndo };
 })();
 window.DSedit=DSedit;
 
@@ -5707,8 +5778,18 @@ const DSgp = (function(){
     return pick(cand) || pulseCellOf(pool, ternary);
   }
   // pasiva SUAVE: solo negras y corcheas (sin semicorcheas) -> cuando la protagonista se mueve
-  function pickPassiveSoft(pool, ternary){
-    const cand=pool.filter(c=>isMoving(c,ternary) && semis(c)===0);
+  // detecta la célula corchea-negra (8-q): "corto-largo" dentro del pulso ternario.
+  // Se evita en la voz pasiva cuando la protagonista se mueve (suena confuso de acompañamiento).
+  function isShortLong(c){
+    const ds=(c.notes||[]).map(n=>(typeof n==='object'?n.d:n));
+    return ds.length===2 && ds[0]==='8' && ds[1]==='q';
+  }
+  function pickPassiveSoft(pool, ternary, avoidShortLong){
+    let cand=pool.filter(c=>isMoving(c,ternary) && semis(c)===0);
+    if(avoidShortLong){
+      const filtered=cand.filter(c=>!isShortLong(c));
+      if(filtered.length) cand=filtered;
+    }
     return pick(cand) || pulseCellOf(pool, ternary);
   }
   // pasiva ACTIVA con ritmos puntuales/ocasionales (semicorcheas incluidas) -> cuando la protagonista reposa
@@ -5775,7 +5856,8 @@ const DSgp = (function(){
         //   1ºGP: figura de pulso pelada.
         //   2ºGP: figura de pulso O combinaciones suaves de negras y corcheas (sin semicorcheas).
         if(opts.passiveMix){
-          out.push( Math.random()<0.5 ? pulseCell : pickPassiveSoft(pool, ternary) );
+          // más reposo: ~70% figura de pulso, ~30% movimiento suave (antes era 50/50).
+          out.push( Math.random()<0.7 ? pulseCell : pickPassiveSoft(pool, ternary, true) );
         } else {
           out.push(pulseCell);
         }
@@ -5968,6 +6050,79 @@ const DSgp = (function(){
             seq.forEach(n=>newNotes.push(n));
           });
           if(changed) meas[mi].notes=newNotes;
+        }
+      }
+      processVoice(measSol); processVoice(measFa);
+    })();
+
+    // === Limpieza final: corchea-negra (8-q) en la pasiva cuando la protagonista se mueve ===
+    // (efecto de borde tras los post-procesos: lo sustituimos por figura de pulso)
+    (function clearShortLongPassive(){
+      if(!passiveMix) return;        // solo aplica a 2º GP
+      if(!ternary) return;           // 8-q solo existe en compás ternario (6/8, 9/8)
+      const pulseTok='qd';
+      const DBL={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+      const PB=1.5;
+      const protMeas = (protag==='sol') ? measSol : measFa;
+      const passMeas = (protag==='sol') ? measFa : measSol;
+      function pulsesOf(meas){
+        const notes=meas.notes; let acc=0,cur=[],cp=0; const ps=[];
+        notes.forEach(n=>{ const p=Math.floor(acc/PB+1e-6); if(p!==cp){ ps.push(cur); cur=[]; cp=p; } cur.push(n); acc+=DBL[(n.d||'').replace('r','')]||0; });
+        if(cur.length) ps.push(cur);
+        return ps;
+      }
+      function protMovesAt(seq){ return seq && seq.length>1 && !seq.every(n=>n.rest); }
+      function isShortLongSeq(seq){ return seq.length===2 && seq[0].d==='8' && seq[1].d==='q' && !seq[0].rest && !seq[1].rest; }
+      for(let mi=0; mi<8; mi++){
+        if(mi===3 || mi===7) continue;  // cierres: no tocar
+        const pp=pulsesOf(protMeas[mi]); const pq=pulsesOf(passMeas[mi]);
+        let changed=false; const newNotes=[];
+        pq.forEach((seq,p)=>{
+          if(protMovesAt(pp[p]) && isShortLongSeq(seq)){
+            const head=seq.find(x=>x.k);
+            const repl={ d:pulseTok };
+            if(head){ repl.k=head.k; repl.midi=head.midi; } else { repl.noHead=true; }
+            newNotes.push(repl); changed=true; return;
+          }
+          seq.forEach(n=>newNotes.push(n));
+        });
+        if(changed) passMeas[mi].notes=newNotes;
+      }
+    })();
+
+    // === NORMA: tras un grupo de 6 semicorcheas, el pulso siguiente no empieza con semicorchea ===
+    (function noSemisAfterSixteenths(){
+      const DBL={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+      const PB = ternary ? 1.5 : 1;
+      const pulseTok = ternary ? 'qd' : 'q';
+      function pulsesOf(meas){
+        const notes=meas.notes; let acc=0,cur=[],cp=0; const ps=[];
+        notes.forEach(n=>{ const p=Math.floor(acc/PB+1e-6); if(p!==cp){ ps.push({p:cp,seq:cur}); cur=[]; cp=p; } cur.push(n); acc+=DBL[(n.d||'').replace('r','')]||0; });
+        if(cur.length) ps.push({p:cp,seq:cur});
+        return ps;
+      }
+      // un pulso "de 6 semicorcheas" = 6 figuras de '16' en el mismo pulso (seisillo ternario)
+      function isSixSixteenths(seq){ return seq.length===6 && seq.every(n=>n.d==='16' && !n.rest); }
+      function startsWithSemi(seq){ return seq.length && seq[0].d==='16' && !seq[0].rest; }
+      function processVoice(meas){
+        // recorrer pulsos del compás; si un pulso es de semis y el siguiente empieza por semi,
+        // sustituir el siguiente por figura de pulso.
+        for(let mi=0; mi<8; mi++){
+          if(mi===3 || mi===7) continue;  // cierres: no tocar
+          const ps=pulsesOf(meas[mi]);
+          let changed=false;
+          for(let k=0;k<ps.length-1;k++){
+            if(isSixSixteenths(ps[k].seq) && startsWithSemi(ps[k+1].seq)){
+              const head=ps[k+1].seq.find(x=>x.k);
+              const repl={ d:pulseTok };
+              if(head){ repl.k=head.k; repl.midi=head.midi; } else { repl.noHead=true; }
+              ps[k+1]={p:ps[k+1].p, seq:[repl]}; changed=true;
+            }
+          }
+          if(changed){
+            const flat=[]; ps.forEach(o=>o.seq.forEach(n=>flat.push(n)));
+            meas[mi].notes=flat;
+          }
         }
       }
       processVoice(measSol); processVoice(measFa);
@@ -6448,6 +6603,11 @@ const DSgen = (function(){
   let pistaRit=null;   // índice de pulso con pista rítmica (plicas/corchetes, altura neutra)
   let pistaMel=null;   // índice de pulso con pista melódica (cabezas reales, sin ritmo)
   let pistaPick=null;  // modo de selección activo: 'rit' | 'mel' | null
+  // ===== PISTAS GRADO PROFESIONAL (dos voces, independientes) =====
+  // cada voz guarda el pulso global con pista rítmica y con pista melódica.
+  let gpPista={ sol:{rit:null, mel:null}, fa:{rit:null, mel:null} };
+  let gpPistaPick=null;   // 'rit' | 'mel' | null : tipo de pista que se está colocando en GP
+  function resetGpPista(){ gpPista={ sol:{rit:null, mel:null}, fa:{rit:null, mel:null} }; gpPistaPick=null; }
   let fullRevealed=false;
   let playing=false;
   let timers=[];
@@ -6542,29 +6702,105 @@ const DSgen = (function(){
 
     // construye StaveNotes de una voz para un compás. clef: 'treble'|'bass'.
     // headKey = grafía VexFlow de la tónica de esa voz (todas las figuras llevan cabeza).
-    function buildBarNotes(meas, clef, headKey){
+    // ¿editor activo? (el profesor ve todo; el alumno ve vacío y revela)
+    const GP_EDITING = (function(){ const eb=document.getElementById('editBar'); return !!(eb && eb.style.display==='flex'); })();
+
+    function buildBarNotes(meas, clef, headKey, measIdx, voice){
       const notes=[]; const figs=[];
       const defKey = headKey || ((clef==='bass') ? 'd/3' : 'g/4');
-      // silencio neutro: 3ª línea (centro) del pentagrama -> b/4 en sol, b/2 en fa
       const restKey = (clef==='bass') ? 'd/3' : 'b/4';
+      const ksOf=(typeof keySigAccidentalFor==='function')?keySigAccidentalFor:null;
+      const accInBar={};
+      // qué pulsos de ESTE compás están revelados (para el alumno). El editor ve todo.
+      const baseP = (measIdx!=null ? measIdx : 0) * D.beatsPerBar;
+      // posición (en pulsos) de cada figura, para saber a qué pulso pertenece
+      const DBL2={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+      let accP=0; const figPulse=[];
+      (meas.notes||[]).forEach(n=>{ figPulse.push(Math.floor(accP/PB+1e-6)); accP+=(DBL2[(n.d||'').replace('r','')]||0); });
+      // pistas de ESTA voz (pulso global con pista rítmica / melódica)
+      const vp = (voice && gpPista[voice]) ? gpPista[voice] : {rit:null, mel:null};
+      const showReal = (qi)=> GP_EDITING || fullRevealed || revealedPulses.has(baseP+figPulse[qi]);
+      const hasRit = (qi)=> vp.rit===(baseP+figPulse[qi]);
+      const hasMel = (qi)=> vp.mel===(baseP+figPulse[qi]);
+      // neutra para la pista rítmica (3ª línea, plica uniforme)
+      const neutralKey = (clef==='bass') ? 'd/3' : 'b/4';
+      const emittedFillerForPulse=new Set();
+      const emittedMelForPulse=new Set();
       (meas.notes||[]).forEach((n,qi)=>{
+        const pulse=figPulse[qi];
+        const revealed=showReal(qi);
+        const rit=hasRit(qi), mel=hasMel(qi);
+        // PISTA MELÓDICA (y no revelado del todo): cabezas reales SIN ritmo (una negra por nota real)
+        if(!revealed && mel){
+          if(n.rest || !n.k){ return; }   // los silencios o huecos no aportan cabeza
+          const sn=new VF.StaveNote({keys:[n.k], duration:'q', clef});
+          // sin plica visible
+          try{ sn.setStemStyle({fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }catch(e){}
+          // accidental si difiere de armadura
+          if(n.k && ksOf){
+            try{
+              const head=(n.k||'').split('/')[0], letter=head[0], accChar=head.slice(1);
+              const noteAcc=accChar==='#'?'#':(accChar==='b'?'b':'');
+              const ksAcc=ksOf(D.keySig, letter);
+              const octave=(n.k||'').split('/')[1]||'4'; const noteId=letter+'/'+octave;
+              const carried=(accInBar[noteId]!==undefined)?accInBar[noteId]:ksAcc;
+              const carriedSign=(carried==='n')?'':carried;
+              if((noteAcc||'')!==carriedSign){ const show=noteAcc||'n'; sn.addModifier(new VF.Accidental(show),0); accInBar[noteId]=show; }
+            }catch(e){}
+          }
+          notes.push(sn);
+          figs.push({sn, n, rest:false, dur:'q', isHead:true, qi, line:0, pistaMel:true});
+          return;
+        }
+        // PISTA RÍTMICA (y no revelado): mismo ritmo, altura neutra (no insinúa la melodía)
+        if(!revealed && rit){
+          const rest=!!n.rest;
+          const dur=(n.d||'q').replace('r','');
+          const sn=new VF.StaveNote({keys:[neutralKey], duration:dur+(rest?'r':''), clef});
+          if(dur.includes('d')){ try{ VF.Dot.buildAndAttach([sn],{all:true}); }catch(e){} }
+          notes.push(sn);
+          figs.push({sn, n:{...n, k:neutralKey}, rest, dur, isHead:false, qi, line:2, pistaRit:true});
+          return;
+        }
+        // pulso OCULTO (alumno, sin pista): emitir un único silencio invisible de pulso
+        if(!revealed){
+          if(emittedFillerForPulse.has(pulse)) return;
+          emittedFillerForPulse.add(pulse);
+          const sn=new VF.StaveNote({keys:[restKey], duration:(ternary?'qd':'q')+'r', clef});
+          if(ternary){ try{ VF.Dot.buildAndAttach([sn],{all:true}); }catch(e){} }
+          sn.setStyle({fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'});  // invisible
+          notes.push(sn);
+          figs.push({sn, n:{rest:true}, rest:true, dur:(ternary?'qd':'q'), isHead:false, qi, line:0, hidden:true});
+          return;
+        }
         const rest=!!n.rest;
         const dur=(n.d||'q').replace('r','');
         const isHead=(!!n.k && !n.noHead);
         const key = rest ? restKey : (n.k ? n.k : defKey);
         const sn=new VF.StaveNote({keys:[key], duration:dur+(rest?'r':''), clef});
-        // dirección de plica según la altura: en/por encima de la línea central -> plica abajo.
-        if(!rest){
+        // alteraciones accidentales: VexFlow NO las dibuja solo porque la key las tenga;
+        // hay que añadirlas explícitamente comparando con la armadura y lo ya vigente en el compás.
+        if(!rest && n.k && ksOf){
           try{
-            const props=sn.getKeyProps()[0];   // {line: nº de línea, 0=línea inferior...}
-            // la línea central del pentagrama es la 3 (índice ~2 en VexFlow: line 3.0)
-            const dir = (props && props.line>=3) ? -1 : 1;   // >=3 (línea central o más agudo) -> abajo
-            sn.setStemDirection(dir);
+            const head=(n.k||'').split('/')[0];
+            const letter=head[0];
+            const accChar=head.slice(1);
+            const noteAcc = accChar==='#' ? '#' : (accChar==='b' ? 'b' : '');
+            const ksAcc = ksOf(D.keySig, letter);
+            const octave=(n.k||'').split('/')[1]||'4';
+            const noteId=letter+'/'+octave;
+            const effectiveAcc = noteAcc || '';
+            const carried = (accInBar[noteId]!==undefined) ? accInBar[noteId] : ksAcc;
+            const carriedSign = (carried==='n') ? '' : carried;
+            let show=null;
+            if(effectiveAcc !== carriedSign){ show = effectiveAcc || 'n'; }
+            if(show){ sn.addModifier(new VF.Accidental(show),0); accInBar[noteId]=show; }
           }catch(e){}
         }
+        let line=0; if(!rest){ try{ line=sn.getKeyProps()[0].line; }catch(e){} }
         if(dur.includes('d')){ try{ VF.Dot.buildAndAttach([sn],{all:true}); }catch(e){} }
         notes.push(sn);
-        figs.push({sn, n, rest, dur, isHead, qi});
+        figs.push({sn, n, rest, dur, isHead, qi, line});
       });
       return {notes, figs};
     }
@@ -6574,19 +6810,28 @@ const DSgen = (function(){
     function beamByPulse(figs, ts, clef){
       const beams=[];
       const durOf=f=>{ const d=(f.dur||''); if(d==='qd')return 1.5; if(d==='8d')return 0.75; return DBL[d.replace('d','')]||1; };
-      // posición acumulada (en negras) de cada figura
       let acc=0;
       const withPos=figs.map(f=>{ const o={f, start:acc, dur:durOf(f)}; acc+=o.dur; return o; });
-      // recorrer pulso a pulso
       const totalPulses=Math.round(acc/PB);
+      const beamed=new Set();
       for(let p=0;p<totalPulses;p++){
         const lo=p*PB-1e-6, hi=(p+1)*PB-1e-6;
-        // figuras vigables (corchea/semicorchea, no silencio) cuyo inicio cae en este pulso
         const inPulse=withPos.filter(o=>o.start>=lo && o.start<hi && !o.f.rest && (o.f.dur==='8'||o.f.dur==='16'||o.f.dur==='8d'));
         if(inPulse.length>1){
-          try{ beams.push(new VF.Beam(inPulse.map(o=>o.f.sn))); }catch(e){}
+          // dirección COMÚN del grupo: según la línea media (si la media >=3 -> abajo).
+          const avgLine = inPulse.reduce((a,o)=>a+(o.f.line||0),0)/inPulse.length;
+          const dir = (avgLine>=3) ? -1 : 1;
+          inPulse.forEach(o=>{ try{ o.f.sn.setStemDirection(dir); }catch(e){} beamed.add(o.f); });
+          // auto_stem=false: respeta la dirección que acabamos de fijar
+          try{ beams.push(new VF.Beam(inPulse.map(o=>o.f.sn), false)); }catch(e){}
         }
       }
+      // notas NO vigadas: dirección por su propia altura
+      figs.forEach(f=>{
+        if(f.rest || beamed.has(f)) return;
+        const dir=((f.line||0)>=3) ? -1 : 1;
+        try{ f.sn.setStemDirection(dir); }catch(e){}
+      });
       return beams;
     }
 
@@ -6608,8 +6853,13 @@ const DSgen = (function(){
         measWeights.push(Math.max(nSol,nFa));
       }
       const wSum=measWeights.reduce((a,b)=>a+b,0)||4;
-      const wEqBase=avail*0.40/4, wPropTotal=avail*0.60;
-      const wOf=(mi)=> wEqBase + wPropTotal*(measWeights[mi]/wSum);
+      // En la vista del ALUMNO con el dictado oculto, las notas no se ven, así que el
+      // reparto por densidad solo crearía desproporción: usamos reparto EQUITATIVO.
+      // En el editor (o con todo revelado) sí pesamos por densidad para evitar desbordes.
+      const showingReal = GP_EDITING || fullRevealed;
+      const wEqBase = showingReal ? avail*0.40/4 : avail/4;
+      const wPropTotal = showingReal ? avail*0.60 : 0;
+      const wOf=(mi)=> wEqBase + (wPropTotal>0 ? wPropTotal*(measWeights[mi]/wSum) : 0);
       let x=startX;
       const yG=yTop, yF=yTop+staffGap;
       const staves=[];
@@ -6646,7 +6896,7 @@ const DSgen = (function(){
           const clef=(voice==='sol')?'treble':'bass';
           const meas=(voice==='sol')?D.measures[measIdx]:D.measuresFa[measIdx];
           if(!meas) return;
-          const {notes, figs}=buildBarNotes(meas, clef, voice==='sol'?headSol:headFa);
+          const {notes, figs}=buildBarNotes(meas, clef, voice==='sol'?headSol:headFa, measIdx, voice);
           const voiceVF=new VF.Voice({num_beats:D.beatsPerBar, beat_value: ternary?8:4, resolution:VF.RESOLUTION}).setMode(VF.Voice.Mode.SOFT);
           voiceVF.setStrict(false);
           voiceVF.addTickables(notes);
@@ -6673,6 +6923,14 @@ const DSgen = (function(){
           b.beams.forEach(bm=>bm.setContext(ctx).draw());
           b.figs.forEach(f=>{
             let el=null; try{ el=f.sn.getSVGElement&&f.sn.getSVGElement(); }catch(e){}
+            // PISTA RÍTMICA: ocultar la cabeza, dejar solo plica/corchete/puntillo
+            if(f.pistaRit && el){
+              try{
+                const heads=el.querySelectorAll('.vf-notehead');
+                if(heads.length){ heads.forEach(h=>{ h.style.display='none'; }); }
+                else { const fp=el.querySelector('path'); if(fp) fp.setAttribute('fill','rgba(0,0,0,0)'); }
+              }catch(e){}
+            }
             if(f.rest){
               window.DS_EDIT_NOTES.push({sn:f.sn, el, voice, measIdx, noteIdx:f.qi, rest:true});
               return;
@@ -6680,6 +6938,16 @@ const DSgen = (function(){
             window.DS_EDIT_NOTES.push({sn:f.sn, el, voice, measIdx, noteIdx:f.qi, rest:false, empty:!f.isHead});
           });
         });
+        // registrar geometría del compás (ambas voces) para los cuadraditos de pista
+        try{
+          ['sol','fa'].forEach(voice=>{
+            const stave=(voice==='sol')?st.sG:st.sF;
+            let nx0, nx1;
+            try{ nx0=stave.getNoteStartX(); }catch(e){ nx0=st.x+12; }
+            nx1=st.x+st.w-6;
+            GP_BAR_RECTS.push({ voice, measIdx, x0:nx0, x1:nx1, midY: stave.getYForLine(2) });
+          });
+        }catch(e){}
       });
 
       // ===== CARRIL DE GRADOS (solo editor) =====
@@ -7289,7 +7557,7 @@ const DSgen = (function(){
   function playChords(){
     DSaudio.ensurePiano().then(()=>{
       const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
-      const chords=chordVoicings(), dur=0.95, gap=1.0;
+      const chords=chordVoicings(), dur=1.35, gap=1.6;
       // separación temporal ANTES del primer acorde, igual que el silencio La->tónica de la referencia
       const startGap=1.6;
       chords.forEach((ch,i)=>{ const when=ac.currentTime+0.1+startGap+i*gap; ch.forEach(m=>playNote(m,when,dur,false)); });
@@ -7335,9 +7603,9 @@ const DSgen = (function(){
     // estado de las tarjetas de acción (pistas / revelar)
     // si las pistas están bloqueadas por fallo de quiz, se marcan 'blocked' (atenuadas pero clicables)
     const br=document.getElementById('btnPistaRit');
-    if(br){ br.classList.toggle('spent', !hintsBlocked && pistaRit!=null); br.classList.toggle('arming',pistaPick==='rit'); br.classList.toggle('blocked', hintsBlocked); }
+    if(br){ br.classList.toggle('spent', !hintsBlocked && pistaRit!=null); br.classList.toggle('arming',pistaPick==='rit'||gpPistaPick==='rit'); br.classList.toggle('blocked', hintsBlocked); }
     const bm=document.getElementById('btnPistaMel');
-    if(bm){ bm.classList.toggle('spent', !hintsBlocked && pistaMel!=null); bm.classList.toggle('arming',pistaPick==='mel'); bm.classList.toggle('blocked', hintsBlocked); }
+    if(bm){ bm.classList.toggle('spent', !hintsBlocked && pistaMel!=null); bm.classList.toggle('arming',pistaPick==='mel'||gpPistaPick==='mel'); bm.classList.toggle('blocked', hintsBlocked); }
     const bk=document.getElementById('btnRevKey');
     if(bk){ bk.classList.toggle('spent', !hintsBlocked && keyRevealed); bk.classList.toggle('blocked', hintsBlocked); }
     const bt=document.getElementById('btnRevTs');
@@ -7402,7 +7670,8 @@ const DSgen = (function(){
       setCardPlaying(idx,true);
       playTonicRef();
       timers.push(setTimeout(()=>{ if(playing) playChords(); }, 2700));
-      timers.push(setTimeout(()=>finishPlayback(idx), 2700+1600+4400));
+      // acordes: startGap 1.6 + 4 acordes a gap 1.6 + última duración 1.35 ≈ 8.0s tras arrancar playChords
+      timers.push(setTimeout(()=>finishPlayback(idx), 2700+8000));
     }
     else if(s.kind==='full'){ playWithCountdown(()=>playRange(0, DICTADO.measures.length, idx), idx); }
     else if(s.kind==='phrase'){ playWithCountdown(()=>playRange(s.phrase===1?0:4, s.phrase===1?4:8, idx), idx); }
@@ -7434,6 +7703,8 @@ const DSgen = (function(){
   function pistaMode(kind){
     if(playing) return;
     if(hintsBlocked){ showQuizResult(false, 'Las pistas están bloqueadas porque fallaste un quiz de tonalidad o compás. No puedes usar más pistas en este dictado.'); return; }
+    // GRADO PROFESIONAL: sistema de pistas propio (por voz). No comparte estado con GE.
+    if(DICTADO && DICTADO.gp){ pistaModeGP(kind); return; }
     if(kind==='rit' && pistaRit!=null) return;  // ya gastada
     if(kind==='mel' && pistaMel!=null) return;
     pistaPick = (pistaPick===kind)? null : kind; // toggle
@@ -7449,7 +7720,77 @@ const DSgen = (function(){
       disablePistaPicking();
     }
   }
-  // centro X (en coords del SVG) de un pulso dentro de un compás. MISMA fórmula que el cuadrado rosa,
+
+  // ===== PISTAS GRADO PROFESIONAL (cuadraditos en cada voz) =====
+  function pistaModeGP(kind){
+    gpPistaPick = (gpPistaPick===kind) ? null : kind;  // toggle
+    const hint=document.getElementById('pistaHint');
+    if(gpPistaPick){
+      if(hint){ hint.style.display='block';
+        hint.textContent = (gpPistaPick==='rit')
+          ? 'Pista rítmica: haz clic en un pulso (en la clave de sol o de fa) para ver su ritmo sin alturas.'
+          : 'Pista melódica: haz clic en un pulso (en la clave de sol o de fa) para ver sus notas sin ritmo.';
+      }
+      enablePistaPickingGP();
+    } else {
+      if(hint) hint.style.display='none';
+      disablePistaPickingGP();
+    }
+    renderSeq();
+  }
+  function disablePistaPickingGP(){
+    const host=document.getElementById('dictScore'); if(!host) return;
+    host.classList.remove('picking');
+    const layer=document.getElementById('pistaLayer'); if(layer) layer.innerHTML='';
+  }
+  function enablePistaPickingGP(){
+    const host=document.getElementById('dictScore'); if(!host) return;
+    host.classList.add('picking');
+    let layer=document.getElementById('pistaLayer');
+    if(!layer){ layer=document.createElement('div'); layer.id='pistaLayer'; host.appendChild(layer); }
+    layer.innerHTML='';
+    const svg=host.querySelector('svg'); if(!svg) return;
+    const hr=host.getBoundingClientRect(), sr=svg.getBoundingClientRect();
+    layer.style.left=(sr.left-hr.left)+'px';
+    layer.style.top=(sr.top-hr.top)+'px';
+    layer.style.width=sr.width+'px';
+    layer.style.height=sr.height+'px';
+    // factor de escala entre coords internas del SVG (viewBox) y px en pantalla
+    const vb=svg.viewBox && svg.viewBox.baseVal;
+    const sx = (vb && vb.width) ? sr.width/vb.width : 1;
+    const sy = (vb && vb.height) ? sr.height/vb.height : 1;
+    const bpb=DICTADO.beatsPerBar;
+    const SQ=20;
+    (GP_BAR_RECTS||[]).forEach(r=>{
+      const pw=(r.x1-r.x0)/bpb;
+      for(let p=0;p<bpb;p++){
+        const gp=r.measIdx*bpb+p;
+        if(revealedPulses.has(gp)) continue;                 // ya revelado del todo
+        if(gpPista[r.voice].rit===gp || gpPista[r.voice].mel===gp) continue;  // pista ya puesta
+        const cx=(r.x0 + p*pw + pw/2)*sx;
+        const cy=(r.midY)*sy;
+        const z=document.createElement('div');
+        z.className='pistaPulse';
+        z.style.left=(cx - SQ/2)+'px';
+        z.style.top=(cy - SQ/2)+'px';
+        z.style.width=SQ+'px';
+        z.style.height=SQ+'px';
+        z.title='Revelar esta pista';
+        z.addEventListener('click', (ev)=>{ ev.stopPropagation(); placeGpPista(r.voice, gp); });
+        layer.appendChild(z);
+      }
+    });
+  }
+  function placeGpPista(voice, gp){
+    if(!gpPistaPick) return;
+    gpPista[voice][gpPistaPick]=gp;
+    gpPistaPick=null;
+    const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
+    disablePistaPickingGP();
+    redraw();
+    renderSeq();
+  }
+
   // para que la pista revelada caiga exactamente donde estaba el cuadrado.
   // El "marco" de cada pulso se toma de la zona REAL donde van las notas del compás
   // (noteStartX..noteEndX), dividida en partes iguales (bpb pulsos). Así el centro de cada
@@ -7850,14 +8191,23 @@ const DSgen = (function(){
       DICTADO = pickFromLibrary();
       if(!DICTADO){ alert('No hay dictados disponibles para este curso todavía. Vuelve pronto.'); return; }
     } else if(_curso==='gp1' || _curso==='gp2'){
-      // Grado Profesional: generador a dos voces (la biblioteca GP aún no existe).
-      DICTADO = genReal();
-      if(!DICTADO){ alert('No se pudo generar el dictado de Grado Profesional.'); return; }
+      // Grado Profesional (dos voces):
+      //  - EDITOR (profesor): genera uno nuevo para revisarlo y registrarlo.
+      //  - ALUMNO: sirve uno de la biblioteca registrada (como en el resto de cursos);
+      //    si todavía no hay suficientes, cae al generador.
+      const editing = (function(){ const eb=document.getElementById('editBar'); return !!(eb && eb.style.display==='flex'); })();
+      if(editing){
+        DICTADO = genReal();
+        if(!DICTADO){ alert('No se pudo generar el dictado de Grado Profesional.'); return; }
+      } else {
+        DICTADO = pickFromLibrary() || genReal();
+        if(!DICTADO){ alert('No hay dictados disponibles para este curso todavía. Vuelve pronto.'); return; }
+      }
     } else {
       // Vista alumno: servir uno de la biblioteca (distinto al anterior). Si está vacía, usar el motor.
       DICTADO = pickFromLibrary() || genReal();
     }
-    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; keyRevealed=false; tsRevealed=false;
+    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); keyRevealed=false; tsRevealed=false;
     hintsBlocked=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
@@ -7869,6 +8219,7 @@ const DSgen = (function(){
     // fundido de aparición del pentagrama
     const host=document.getElementById('dictScore');
     if(host && DICTADO){ host.classList.remove('fade-in'); void host.offsetWidth; host.classList.add('fade-in'); }
+    try{ if(window.DSedit && DSedit.clearUndo) DSedit.clearUndo(); }catch(e){}
   }
 
   // ge1: no hay 'Revelar tonalidad' (siempre Do mayor) -> ocultar y que 'Revelar compás' ocupe los 2 espacios
@@ -7889,7 +8240,7 @@ const DSgen = (function(){
   function clearDictado(){
     if(playing) stopPlayback();
     DICTADO=null;
-    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; keyRevealed=false; tsRevealed=false;
+    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); keyRevealed=false; tsRevealed=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
     SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
@@ -7906,6 +8257,7 @@ const DSgen = (function(){
     revealAll(){ fullRevealed=true; keyRevealed=true; tsRevealed=true; redraw(); },
     playOne(midi){ try{ stopPlayback(); }catch(e){} try{ const t=DSaudio.ctx().currentTime+0.03; playNote(midi, t, 0.7, false); }catch(e){} },
     getDictado(){ return DICTADO; },
+    setDictado(d){ DICTADO=d; },
     // dibuja un dictado (objeto) en miniatura dentro de targetEl (para la vista previa de la biblioteca)
     renderThumbnail(dictObj, targetEl){
       if(!dictObj || !targetEl) return;
@@ -8017,59 +8369,79 @@ const DSgen = (function(){
       }catch(e){ /* miniatura best-effort */ }
     },
     // reproduce el dictado completo sin cuenta atrás ni gastar escuchas (para el editor)
-    playEditor(){
+    playEditor(fromStart){
       if(!DICTADO){ return; }
       if(playing){ stopPlayback(); return; }
       const ac=DSaudio.ctx();
-      // ¿hay una nota seleccionada? -> empezar desde ahí (compás y nota)
-      let fromMeas=0, fromNote=0;
-      try{
-        const selPos = (window.DSedit && DSedit.getSelection) ? DSedit.getSelection() : null;
-        if(selPos){ fromMeas=selPos.measIdx; fromNote=selPos.noteIdx; }
-      }catch(e){}
+      const bpb=DICTADO.beatsPerBar;
+      const PB=(DICTADO.pulseFig==='qd'?1.5:1);
+      // punto de inicio EN TIEMPO (negras absolutas desde el compás 0).
+      // Si hay nota seleccionada y no se fuerza el inicio, empezamos en su instante;
+      // así ambas voces arrancan sincronizadas por tiempo (no por índice).
+      let startBeatAbs=0;
+      if(!fromStart){
+        try{
+          const selPos = (window.DSedit && DSedit.getSelection) ? DSedit.getSelection() : null;
+          if(selPos){
+            const selVoice=(selPos.voice||'sol');
+            const arr=(selVoice==='fa' && DICTADO.measuresFa)?DICTADO.measuresFa:DICTADO.measures;
+            let beats=selPos.measIdx*bpb*PB;
+            const meas=arr[selPos.measIdx];
+            if(meas){
+              const tdefs=meas._tuplets||[];
+              for(let k=0;k<selPos.noteIdx;k++){
+                const nk=meas.notes[k]; if(!nk) break;
+                let dk=(nk.dur==='full')?bpb*PB:(DUR_BEATS[(nk.d||'').replace('r','')]||1);
+                tdefs.forEach(tp=>{ if(k>=tp.start && k<tp.start+tp.def.first){ dk=dk*(tp.def.notes/tp.def.num); } });
+                beats+=dk;
+              }
+            }
+            startBeatAbs=beats;
+          }
+        }catch(e){}
+      }
       const startSeq=()=>{
         DSaudio.ensurePiano().then(p=>{
           playing=true;
-          const bpb=DICTADO.beatsPerBar;
-          const PB=(DICTADO.pulseFig==='qd'?1.5:1);
           const t0=ac.currentTime+0.08;
-          let cursor=t0;
-          for(let mi=fromMeas; mi<DICTADO.measures.length; mi++){
-            const meas=DICTADO.measures[mi];
-            const tdefs=meas._tuplets||[];
-            // posición (en negras) de inicio del compás; en el primer compás saltamos
-            // el tiempo de las notas anteriores a la nota de inicio
-            let beatPos=0;
-            let skipBeats=0;
-            if(mi===fromMeas){
-              for(let k=0;k<fromNote;k++){
-                const nk=meas.notes[k];
-                let dk=(nk.dur==='full')?bpb*PB:(DUR_BEATS[(nk.d||'').replace('r','')]||1);
-                tdefs.forEach(tp=>{ if(k>=tp.start && k<tp.start+tp.def.first){ dk=dk*(tp.def.notes/tp.def.num); } });
-                skipBeats+=dk;
+          // reproduce una voz desde startBeatAbs (en negras absolutas). Devuelve cursor final.
+          const playVoice=(measArr, doHighlight)=>{
+            if(!measArr) return t0;
+            let absBeat=0;  // posición absoluta en negras al inicio de cada figura
+            let lastEnd=t0;
+            for(let mi=0; mi<measArr.length; mi++){
+              const meas=measArr[mi]; if(!meas){ absBeat+=bpb*PB; continue; }
+              const tdefs=meas._tuplets||[];
+              for(let ni=0; ni<meas.notes.length; ni++){
+                const n=meas.notes[ni];
+                const rest=(n.d||'').includes('r');
+                let db=(n.dur==='full')?bpb*PB:(DUR_BEATS[(n.d||'').replace('r','')]||1);
+                let realDb=db;
+                tdefs.forEach(tp=>{ if(ni>=tp.start && ni<tp.start+tp.def.first){ realDb=db*(tp.def.notes/tp.def.num); } });
+                // solo sonar si esta figura empieza en/después del punto de inicio
+                if(absBeat >= startBeatAbs - 1e-6){
+                  const when=t0+(absBeat-startBeatAbs)*negraSec();
+                  if(!rest && n.midi!=null){
+                    const dur=Math.max(0.12, realDb*negraSec()*0.95);
+                    const node=p.play(n.midi, when, {duration:dur, gain:1.2});
+                    DSaudio.track(node);
+                    if(doHighlight){
+                      const delay=(when-ac.currentTime)*1000;
+                      timers.push(setTimeout(()=>{
+                        if(playing && window.DSedit && DSedit.highlightEditNote) DSedit.highlightEditNote(mi, ni);
+                      }, Math.max(0,delay)));
+                    }
+                  }
+                  lastEnd=when+realDb*negraSec();
+                }
+                absBeat+=realDb;
               }
             }
-            for(let ni=(mi===fromMeas?fromNote:0); ni<meas.notes.length; ni++){
-              const n=meas.notes[ni];
-              const rest=(n.d||'').includes('r');
-              let db=(n.dur==='full')?bpb*PB:(DUR_BEATS[(n.d||'').replace('r','')]||1);
-              let realDb=db;
-              tdefs.forEach(tp=>{ if(ni>=tp.start && ni<tp.start+tp.def.first){ realDb=db*(tp.def.notes/tp.def.num); } });
-              if(!rest){
-                const when=cursor+(beatPos)*negraSec();
-                const dur=Math.max(0.12, realDb*negraSec()*0.95);
-                const node=p.play(n.midi, when, {duration:dur, gain:1.2});
-                DSaudio.track(node);
-                const delay=(when-ac.currentTime)*1000;
-                timers.push(setTimeout(()=>{
-                  if(playing && window.DSedit && DSedit.highlightEditNote) DSedit.highlightEditNote(mi, ni);
-                }, Math.max(0,delay)));
-              }
-              beatPos+=realDb;
-            }
-            // avanzar el cursor: el compás de inicio dura solo lo que queda tras la nota de inicio
-            cursor += (bpb*PB - skipBeats)*negraSec();
-          }
+            return lastEnd;
+          };
+          const endSol=playVoice(DICTADO.measures, true);
+          const endFa =playVoice(DICTADO.measuresFa, false);
+          const cursor=Math.max(endSol, endFa);
           const endMs=(cursor-ac.currentTime)*1000;
           timers.push(setTimeout(()=>{ playing=false; }, endMs+50));
         }).catch(e=>{ playing=false; console.warn('playEditor:', e); });
@@ -8082,7 +8454,7 @@ const DSgen = (function(){
     genFromMotor(){
       if(playing) stopPlayback();
       DICTADO=genReal();  // genReal ya incluye el 30% de bass clef para ge3/ge4
-      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; keyRevealed=true; tsRevealed=true;
+      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); keyRevealed=true; tsRevealed=true;
       disablePistaPicking();
       const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
       SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
@@ -8094,7 +8466,7 @@ const DSgen = (function(){
       if(playing) stopPlayback();
       // clonar para no mutar la biblioteca hasta que se registre de nuevo
       DICTADO = JSON.parse(JSON.stringify(dictadoObj));
-      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; keyRevealed=true; tsRevealed=true;
+      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); keyRevealed=true; tsRevealed=true;
       disablePistaPicking();
       const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
       SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
