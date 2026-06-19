@@ -49,6 +49,10 @@
   .lm-brand .lm{ color:var(--ink); font-weight:900; }
   .lm-brand .eav{ color:var(--muted2); font-weight:300; }
   .lm-brand .home2{ font-size:.62em; }
+  .lm-home-link{ text-decoration:none; color:inherit; cursor:pointer; transition:opacity .15s; }
+  .lm-home-link:hover{ opacity:.78; }
+  .appname-link{ cursor:pointer; transition:opacity .15s; }
+  .appname-link:hover{ opacity:.78; }
   .lm-brand-sub{ font-size:13px; color:var(--muted2); margin-top:2px; }
   .lm-top-right{ text-align:right; }
   .lm-tagline{ font-size:12px; letter-spacing:.05em; color:var(--muted); }
@@ -576,6 +580,15 @@
 
   /* === Cartel "Genera un dictado": tarjeta oscura del MISMO tamaño que el pentagrama === */
   .score-wrap{ position:relative; }
+  /* ===== Modo Grado Profesional (dictado a dos voces, más alto): compactar la portada
+     para que no aparezca scroll y la zona de reproducción/pistas siga visible. ===== */
+  body.gp-mode .appname-top{ margin-top:0; }      /* el título DICTADO at home se mantiene (estética de marca), compacto */
+  body.gp-mode .appname-top h2{ font-size:26px; }
+  body.gp-mode .hybrid-note{ display:none; }       /* la nota explicativa se oculta, para ganar alto */
+  body.gp-mode .score-panel{ min-height:0; padding:14px 18px; align-items:flex-start; }
+  body.gp-mode .gen-meta{ display:none; }
+  body.gp-mode .cards-title{ margin-top:10px; }
+  body.gp-mode .gen-controls{ margin-top:6px; }
   .empty-cta{ min-height:276px; box-sizing:border-box; display:flex; align-items:center; justify-content:center;
     border-radius:16px; padding:22px 18px;
     background:linear-gradient(180deg, var(--panel2), var(--panel));
@@ -668,7 +681,7 @@
     <!-- fila marca | control -->
     <div class="lm-top">
       <div class="lm-brand">
-        <h1 class="lm-h1"><span class="lm">LM</span><span class="eav">EAV</span> <span class="home2">at home</span></h1>
+        <h1 class="lm-h1"><a href="https://iagonaron.github.io/LMEAVathome/" class="lm-home-link" title="Ir a LMEAV at home"><span class="lm">LM</span><span class="eav">EAV</span> <span class="home2">at home</span></a></h1>
         <div class="lm-brand-sub">Recursos interactivos LM y EAV desde tu casa</div>
       </div>
       <div class="lm-actions">
@@ -689,7 +702,7 @@
     <p id="difficultyHint" class="difficulty-hint">Si te resultan demasiado fáciles, recarga la página y selecciona un curso superior ;)</p>
     <!-- nombre de la app: centrado, en flujo (no absoluto) -->
     <div class="appname-top">
-      <h2><span class="pre">DICT</span><span class="post">ADO</span> <span class="home2">at home</span></h2>
+      <h2 class="appname-link" onclick="window.DS_openGate&&window.DS_openGate()" title="Volver a elegir curso"><span class="pre">DICT</span><span class="post">ADO</span> <span class="home2">at home</span></h2>
     </div>
     <p class="hybrid-note" id="hybridNote"><span class="hn-line">Haz el dictado como si estuvieras en clase: coge tu libreta de pentagramas, lápiz y goma, y sigue los audios por orden.</span><span class="hn-line">Si lo necesitas, podrás usar algunas pequeñas ayudas: <span class="pistas-word">pistas</span>.</span></p>
   </div>
@@ -3276,6 +3289,39 @@ function generateDictado(active, opts){
     fr.k=midiToVexKey(target, useFlats, null);
   })();
 
+  // === NORMA GLOBAL: no repetir el mismo ritmo de pulso 3 veces seguidas ===
+  // (mismos criterios que en GP; los silencios no cuentan; los cierres reinician la racha)
+  (function noTripleRepeatGE(){
+    const ternary=(ts==='6/8'||ts==='3/8'||ts==='9/8');
+    const pulseTok = ternary ? 'qd' : 'q';
+    const _DB={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+    const PB = ternary ? 1.5 : 1;
+    const nBars = measures.length;
+    let prevSig=null, runLen=0;
+    for(let mi=0; mi<nBars; mi++){
+      // compases de cierre / inicio de frase: no tocar y reiniciar racha
+      // (4 y 8 cierran; 1 y 5 son inicios imitados)
+      if(mi===0 || mi===4 || mi===3 || mi===7){ prevSig=null; runLen=0; continue; }
+      const notes=measures[mi].notes; if(!notes) continue;
+      let acc=0, cur=[], cp=0; const pulses=[];
+      notes.forEach(n=>{ const p=Math.floor(acc/PB+1e-6); if(p!==cp){ pulses.push(cur); cur=[]; cp=p; } cur.push(n); acc+=_DB[(n.d||'').replace('r','')]||0; });
+      if(cur.length) pulses.push(cur);
+      let changed=false; const newNotes=[];
+      pulses.forEach(seq=>{
+        if(seq.every(n=>n.rest)){ seq.forEach(n=>newNotes.push(n)); return; }
+        const s=seq.map(n=>(n.d||'')).join('-');
+        if(s===prevSig){ runLen++; } else { prevSig=s; runLen=1; }
+        if(runLen>=3 && s!==pulseTok){
+          const head=seq[0];
+          const repl={ d:pulseTok, k:head.k, midi:head.midi, deg:head.deg };
+          newNotes.push(repl); changed=true; prevSig=pulseTok; runLen=1; return;
+        }
+        seq.forEach(n=>newNotes.push(n));
+      });
+      if(changed) measures[mi].notes=newNotes;
+    }
+  })();
+
   return {
     key:k.key, name:k.name, mode:k.mode, keySig:k.keySig, tonicMidi:k.tonicMidi,
     harmonyBarPlan: harmonyBarPlan,
@@ -3575,7 +3621,7 @@ const CELLS = [
   // ===== S. TERNARIO =====
   {id:'t_3cor', name:"3 corcheas", block:'ternario', ts:'3/8', pulses:1, def:true, freq:'bas', notes:['8','8','8']},
   {id:'t_npunt', name:"Negra con puntillo", block:'ternario', ts:'3/8', pulses:1, def:true, freq:'bas', notes:['qd']},
-  {id:'t_6semi', name:"Base 6 semicorcheas", block:'ternario', ts:'3/8', pulses:1, def:true, freq:'rec', notes:['16','16','16','16','16','16']},
+  {id:'t_6semi', name:"Base 6 semicorcheas", block:'ternario', ts:'3/8', pulses:1, def:true, freq:'oca', notes:['16','16','16','16','16','16']},
   {id:'t_negcor_v1', name:"Negra-corchea (y síncopa) — Negra + corchea", block:'ternario', ts:'3/8', pulses:1, def:true, freq:'rec', notes:['q','8']},
   {id:'t_negcor_v2', name:"Negra-corchea (y síncopa) — Corchea + negra (síncopa ternaria)", block:'ternario', ts:'3/8', pulses:1, def:true, freq:'oca', notes:['8','q']},
   {id:'t_2semiA_v1', name:"Combi 2 semi A — C·C·2S", block:'ternario', ts:'3/8', pulses:1, def:true, freq:'pun', notes:['8','8','16','16']},
@@ -4066,6 +4112,23 @@ function buildRitLaws(){
       'Síncopa en 3/4: 30% de probabilidad por dictado (corchea-negra-corchea ocupando los dos primeros pulsos; el tercer pulso de ese compás es figura de pulso). Como máximo una, en los compases 2, 3, 6 o 7.',
       'Compases 1, 4, 5 y 8 no cambian (inicios de frase, semicadencia y cierre).'
     ]},
+    {t:'Grado Profesional — dictado a dos voces (1º y 2º GP)', items:[
+      'Los dictados de GP son a DOS VOCES en gran sistema: clave de sol (voz aguda) y clave de fa (voz grave), con barras de compás que cruzan ambos pentagramas.',
+      'En cada dictado una voz es la PROTAGONISTA (más activa) y la otra la PASIVA. La protagonista es la de sol el 75% de los dictados y la de fa el 25%.',
+      'Regla fundamental pulso a pulso: en cada pulso una voz se mueve y la otra está en reposo (figura de pulso). Nunca las dos quietas a la vez (salvo en los cierres).',
+      '1º GP — cuando la protagonista se mueve, la pasiva va estrictamente a figura de pulso. Cuando la protagonista reposa, la pasiva usa negras, corcheas y combinaciones ocasionales, pero SIN semicorcheas (nada del nivel de 3º GE).',
+      '2º GP — cuando la protagonista se mueve, la pasiva puede ir a figura de pulso o con combinaciones suaves de negras y corcheas (sin semicorcheas). Cuando la protagonista reposa, la pasiva se activa con ritmos puntuales y ocasionales (semicorcheas incluidas).',
+      'Cierre de semifrase (compases 2 y 6): la protagonista mueve el primer pulso y hace figura de pulso (reposo) en el último pulso. En 2/4 y 6/8 el reposo cae en el 2º pulso; en 3/4 y 9/8, en el 3er pulso.',
+      'Cierre de frase (compases 4 y 8): ambas voces reposan — figura de pulso en el primer pulso y silencio el resto. El compás 4 admite un breve puente de la voz pasiva hacia la segunda frase.',
+      'Material rítmico: 1º GP hereda las células activas de 3º GE; 2º GP hereda las de 4º GE, con sus frecuencias configuradas en el catálogo de células.',
+      'Excepción en 3/4 y 9/8: la voz protagonista usa un material rítmico de un curso por debajo (1º GP → 2º GE, 2º GP → 3º GE), porque el compás de tres pulsos resulta más exigente. La voz pasiva mantiene su material habitual.',
+      'La síncopa breve (semicorchea-corchea-semicorchea) aparece como máximo una vez por sistema en cada voz, y solo en 2º GP (en 1º GP no aparece).',
+      'Tonalidades: 1º GP de 0 a 4 alteraciones; 2º GP de 1 a 5. Mayores y menores (las menores se escriben con la armadura de su relativo mayor).',
+      'Compases: 1º GP usa 2/4, 3/4 y 6/8; 2º GP añade 9/8 (con baja probabilidad).',
+      'En 3/4 la voz protagonista se mueve algo menos que en el resto de compases (los tres pulsos cargan mucho), para que el dictado no resulte excesivamente difícil.',
+      'Cada voz escribe SUS PROPIOS silencios de forma independiente: si una voz calla en un pulso, ese silencio se escribe en su clave, coincida o no con la otra voz.',
+      'Cada compás lleva un cifrado de grado (un grado por compás) como ayuda al profesor en el editor; no se muestra al alumno.'
+    ]},
     {t:'Estructura rítmica', items:[
       'Cada dictado son 8 compases (2 frases de 4). Cada compás cuadra exactamente con su métrica.',
       'El compás 4 cierra la primera frase con semicadencia (figura de reposo + silencio).',
@@ -4077,6 +4140,7 @@ function buildRitLaws(){
     ]},
     {t:'Arranque y variedad', items:[
       'No se empieza un compás con dos pulsos de ritmo idéntico; en general, se evita repetir el mismo patrón rítmico en dos pulsos seguidos del mismo compás.',
+      'Norma global (todos los cursos): un mismo ritmo de pulso no puede repetirse tres veces seguidas dentro de una voz (los silencios no cuentan ni rompen la racha; los compases de cierre e inicio de frase no se ven afectados).',
       'En 6/8, los compases 1 y 5 arrancan con negra con puntillo en el primer pulso y tres corcheas o negra+corchea en el segundo; un 10% de las veces salen seis corcheas (y entonces la melodía sube y baja, no va recta).',
       'En 3/4, cada compás interior tiene al menos un pulso de negra; los compases 4 y 8 son la excepción (pueden llevar blanca con puntillo, blanca + silencio, etc.).'
     ]},
@@ -4200,14 +4264,14 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     {id:'ge2', label:'2º Grado Elemental', num:'2º', g:'G', e:'E', locked:false, empty:true},
     {id:'ge3', label:'3º Grado Elemental', num:'3º', g:'G', e:'E', locked:false, empty:true},
     {id:'ge4', label:'4º Grado Elemental', num:'4º', g:'G', e:'E', locked:false, empty:false}, // configuración actual
-    {id:'gp1', label:'1º Grado Profesional', num:'1º', g:'G', e:'P', locked:true},
-    {id:'gp2', label:'2º Grado Profesional', num:'2º', g:'G', e:'P', locked:true},
+    {id:'gp1', label:'1º Grado Profesional', num:'1º', g:'G', e:'P', locked:false},
+    {id:'gp2', label:'2º Grado Profesional', num:'2º', g:'G', e:'P', locked:false},
   ];
   // En el GATE de entrada, cursos elegibles (configurados).
   const GATE_AVAILABLE = ['ge3'];
-  const GATE_BETA = ['ge1','ge2'];   // cursos con acceso por contraseña
-  // En EDICIÓN, de momento solo 3º GE (el resto, próximamente).
-  const EDIT_AVAILABLE = ['ge3'];
+  const GATE_BETA = ['ge1','ge2','ge4','gp1','gp2'];   // cursos con acceso por contraseña
+  // En EDICIÓN (Configuración): navegables todos los cursos.
+  const EDIT_AVAILABLE = ['ge1','ge2','ge3','ge4','gp1','gp2'];
 
   let activeCourse = null;   // curso con el que se GENERAN dictados (se fija en el gate)
   let editingCourse = null;  // curso que se está mirando/configurando en Edición
@@ -4225,7 +4289,7 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
         keys: ['C','G','D','F','Bb','Am','Em','Bm','Dm','Gm'],
         meters: {'2/4':true,'3/4':true,'4/4':false,'3/8':false,'6/8':true,'9/8':false},
         cells: {
-          t_3cor:{on:true,freq:'bas'}, t_npunt:{on:true,freq:'bas'}, t_6semi:{on:true,freq:'rec'},
+          t_3cor:{on:true,freq:'bas'}, t_npunt:{on:true,freq:'bas'}, t_6semi:{on:true,freq:'oca'},
           t_negcor_v1:{on:true,freq:'rec'}, t_negcor_v2:{on:true,freq:'oca'}, t_4semi_v2:{on:true,freq:'oca'},
           t_ndp:{on:true,freq:'oca'},
           b_negra:{on:true,freq:'bas'}, b_blanca34:{on:true,freq:'oca'}, b_2cor:{on:true,freq:'bas'},
@@ -4273,14 +4337,90 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     }
   };
 
+  // ===== GRADO PROFESIONAL: dictados a DOS VOCES (sol+fa) =====
+  // El generador GP no compone melodía: arma el esqueleto rítmico de cada voz,
+  // pone la cabeza de la tónica en el 1er compás de cada voz, y propone una
+  // secuencia armónica (un grado por compás) escrita bajo el sistema. Iago compone.
+  //
+  // Banco de secuencias armónicas (8 grados = 8 compases, 2 frases de 4).
+  // Global (window) porque lo consume el generador DSgp, que vive en otro scope.
+  window.GP_HARMONY = {
+    // 1º GP: A–J
+    base: [
+      ['I','V','I','V','I','IV','V','I'],
+      ['I','IV','I','V','VI','IV','V','I'],
+      ['I','VI','IV','V','I','II','V','I'],
+      ['I','VI','II','V','I','IV','V','I'],
+      ['I','IV','II','V','I','VI','V','I'],
+      ['I','III','VI','V','I','IV','V','I'],
+      ['I','VI','II','V','III','VI','V','I'],
+      ['I','IV','iv','I','II','IV','V','I'],
+      ['I','VI7','II','V','I','IV','V','I'],
+      ['I','I7','IV','II','I','IV','V','I'],
+    ],
+    // 2º GP adicionales: K–T
+    extra: [
+      ['I','III7','VI','II','IV','II','V','I'],
+      ['I','VI','VI7','II','II7','II','V','I'],
+      ['I','II7','V','VI','II','IV','V','I'],
+      ['I','III7','VI','IV','II','IV','V','I'],
+      ['I','VI','III7','VI','IV','II','V','I'],
+      ['I','III','VI','VI7','II','IV','V','I'],
+      ['I','III7','VI','II','I','IV','V','I'],
+      ['I','VI7','II','II7','I','IV','V','I'],
+      ['I','I7','IV','VI7','II','IV','V','I'],
+      ['I','III7','VI','II7','V','IV','V','I'],
+    ]
+  };
+
+  // gp1: tonalidades 0–4 alteraciones (mayores y menores); compases 2/4, 3/4, 6/8.
+  courseCfg['gp1'] = {
+    isGP:true, voices:2, harmonyLevel:'base', protagonist:{g:0.75,f:0.25},
+    rhythmCourse:'ge3',                       // dificultad rítmica de la voz protagonista
+    maxAcc:4, minAcc:0,
+    meters: {'2/4':true,'3/4':true,'4/4':false,'3/8':false,'6/8':true,'9/8':false},
+    // las células reales se toman del catálogo de ge3/ge4 según rhythmCourse
+  };
+  // gp2: tonalidades 1–5 alteraciones; compases 2/4, 3/4, 6/8, 9/8.
+  courseCfg['gp2'] = {
+    isGP:true, voices:2, harmonyLevel:'extra', protagonist:{g:0.75,f:0.25},
+    rhythmCourse:'ge4',                       // protagonista nivel 4º GE
+    passiveMix:true,                          // voz pasiva con mezcla base+recurrente
+    maxAcc:5, minAcc:1,
+    meters: {'2/4':true,'3/4':true,'4/4':false,'3/8':false,'6/8':true,'9/8':true},
+  };
+
   // selecciona el curso ACTIVO (para generar). Solo desde el gate.
   function setActiveCourse(id){
     activeCourse = id;
     window.DS_ACTIVE_COURSE = id;
+    try{ document.body.classList.toggle('gp-mode', id==='gp1'||id==='gp2'); }catch(e){}
     try{ if(window.DSgen && window.DSgen.updateHintButtonsForCourse) window.DSgen.updateHintButtonsForCourse(); }catch(e){}
     window.DS_COURSE_LABEL = (COURSES.find(x=>x.id===id)||{}).label || id;
     // el generador usará la config de este curso
     window.DS_COURSE_CFG = courseCfg[id] || null;
+    // GRADO PROFESIONAL: inyectar en el cfg las células ACTIVAS del curso de ritmo
+    // (gp1 -> ge3, gp2 -> ge4), respetando on/off y nivel de cada célula.
+    if((id==='gp1'||id==='gp2') && window.DS_COURSE_CFG){
+      try{ captureCurrentAsGE4(); }catch(e){}
+      const rc = window.DS_COURSE_CFG.rhythmCourse || (id==='gp2'?'ge4':'ge3');
+      const rcfg = courseCfg[rc];
+      if(rcfg && rcfg.cells){
+        // solo las que están activas (on:true), con su freq
+        const active={};
+        Object.keys(rcfg.cells).forEach(cid=>{ const c=rcfg.cells[cid]; if(c && c.on) active[cid]={freq:c.freq}; });
+        window.DS_COURSE_CFG = Object.assign({}, window.DS_COURSE_CFG, { activeCells: active });
+        // CÉLULAS DE LA PROTAGONISTA EN 3/4 y 9/8: un curso por debajo
+        // (gp1 -> ge2, gp2 -> ge3) para aliviar la dificultad en compás de tres pulsos.
+        const rcLow = (id==='gp2') ? 'ge3' : 'ge2';
+        const rcfgLow = courseCfg[rcLow];
+        if(rcfgLow && rcfgLow.cells){
+          const activeLow={};
+          Object.keys(rcfgLow.cells).forEach(cid=>{ const c=rcfgLow.cells[cid]; if(c && c.on) activeLow[cid]={freq:c.freq}; });
+          window.DS_COURSE_CFG = Object.assign({}, window.DS_COURSE_CFG, { activeCellsProtLow: activeLow, rhythmCourseLow: rcLow });
+        }
+      }
+    }
     // CRITERIOS POR CURSO:
     //  - 1º GE: tesitura estricta Do4–Do5, saltos solo de arpegio, cierre de semifrase en compases 2/6.
     //  - 3º GE: salto máx 5ª, cierre simple, + REGLAS RÍTMICAS ESTRUCTURALES (compases 2/3/6/7 y síncopas).
@@ -4880,15 +5020,27 @@ var DSedit = (function(){
       if(first) setTimeout(()=>{ if(!sel) selectNote(first); }, 50);
     }
   }
+  // helper: array de compases de la voz indicada (GP tiene dos voces)
+  function measuresOf(D, voice){
+    if(D && D.gp && voice==='fa' && D.measuresFa) return D.measuresFa;
+    return D.measures;
+  }
+  // helper: la nota referida por sel, respetando la voz (GP)
+  function noteAt(D, s){
+    if(!D||!s) return null;
+    const arr=measuresOf(D, s.voice);
+    const m=arr&&arr[s.measIdx]; if(!m||!m.notes) return null;
+    return m.notes[s.noteIdx]||null;
+  }
   function selectNote(rec){
-    sel={ measIdx:rec.measIdx, noteIdx:rec.noteIdx };
+    sel={ measIdx:rec.measIdx, noteIdx:rec.noteIdx, voice:rec.voice||'sol' };
     drawSelBox(rec);
-    const D=DSgen.getDictado(); const n=D.measures[rec.measIdx].notes[rec.noteIdx];
+    const D=DSgen.getDictado(); const n=noteAt(D, sel);
     if(n && n.midi!=null) DSgen.playOne(n.midi);
   }
   // igual que selectNote pero sin reproducir audio (para avance desde MIDI)
   function selectNoteSilent(rec){
-    sel={ measIdx:rec.measIdx, noteIdx:rec.noteIdx };
+    sel={ measIdx:rec.measIdx, noteIdx:rec.noteIdx, voice:rec.voice||'sol' };
     drawSelBox(rec);
   }
   function drawSelBox(rec){
@@ -4907,8 +5059,12 @@ var DSedit = (function(){
   // mover la nota seleccionada ±1 semitono
   function nudge(delta){
     if(!sel) return;
-    const D=DSgen.getDictado(); const n=D.measures[sel.measIdx].notes[sel.noteIdx];
-    if(!n || n.midi==null) return;
+    const D=DSgen.getDictado(); const n=noteAt(D, sel);
+    if(!n || n.midi==null){
+      // GP: si la figura aún no tiene altura (esqueleto), inicializarla en la tónica al pinchar
+      if(n && D && D.gp){ n.midi=(sel.voice==='fa')? (D.tonicMidi-12||50) : (D.tonicMidi||67); delete n.noHead; }
+      else return;
+    }
     let m=n.midi+delta;
     if(m<24) m=24; if(m>96) m=96;     // rango amplio (Do1..Do7) para poder editar notas muy graves o agudas
     n.midi=m;
@@ -4924,14 +5080,14 @@ var DSedit = (function(){
   // enarmonía: reescribe la grafía sin cambiar la altura
   function enharmonic(){
     if(!sel) return;
-    const D=DSgen.getDictado(); const n=D.measures[sel.measIdx].notes[sel.noteIdx];
+    const D=DSgen.getDictado(); const n=noteAt(D, sel);
     if(!n || n.midi==null) return;
     // Calcular las dos grafías posibles para este midi: con sostenido y con bemol.
-    const sharp = midiToVexKey(n.midi, false);   // p.ej. 'g#/4'
-    const flat  = midiToVexKey(n.midi, true);    // p.ej. 'ab/4'
+    // midiToVexKey devuelve {key, hasAcc}; nos quedamos con .key.
+    const sharp = midiToVexKey(n.midi, false).key;   // p.ej. 'g#/4'
+    const flat  = midiToVexKey(n.midi, true).key;    // p.ej. 'ab/4'
     if(sharp===flat){
       // nota natural (do, re, mi, fa, sol, la, si): no tiene enarmónico simple de un paso.
-      // Avisar suavemente y no hacer nada (no rompemos nada).
       try{ showBanner('Esta nota no tiene enarmonía con ♯/♭ (es natural).', 'wait'); }catch(e){}
       return;
     }
@@ -4946,8 +5102,9 @@ var DSedit = (function(){
   }
   function reselect(ms,ni){
     if(!on||mode!=='alturas') return;
-    const rec=(window.DS_EDIT_NOTES||[]).find(r=>r.measIdx===ms && r.noteIdx===ni);
-    if(rec){ sel={measIdx:ms,noteIdx:ni}; drawSelBox(rec); }
+    const vc=(sel&&sel.voice)||'sol';
+    const rec=(window.DS_EDIT_NOTES||[]).find(r=>r.measIdx===ms && r.noteIdx===ni && ((r.voice||'sol')===vc));
+    if(rec){ sel={measIdx:ms,noteIdx:ni,voice:vc}; drawSelBox(rec); }
   }
 
   // ---- MODO RITMO ----
@@ -5116,10 +5273,12 @@ var DSedit = (function(){
 
   // navegar a la nota anterior/siguiente (orden de lectura: por compás y posición)
   function moveSel(dir){
-    const list=(window.DS_EDIT_NOTES||[]).filter(r=>!r.rest);
+    const vc=(sel&&sel.voice)||'sol';
+    const all=(window.DS_EDIT_NOTES||[]).filter(r=>!r.rest);
+    const list = all.some(r=>r.voice) ? all.filter(r=>(r.voice||'sol')===vc) : all;
     if(!list.length) return;
     if(!sel){ selectNote(list[0]); return; }
-    let idx=list.findIndex(r=>r.measIdx===sel.measIdx && r.noteIdx===sel.noteIdx);
+    let idx=list.findIndex(r=>r.measIdx===sel.measIdx && r.noteIdx===sel.noteIdx && ((r.voice||'sol')===vc));
     if(idx<0) idx=0;
     idx+=dir;
     if(idx<0) idx=0; if(idx>=list.length) idx=list.length-1;
@@ -5127,10 +5286,13 @@ var DSedit = (function(){
   }
   // igual que moveSel pero sin reproducir audio (para uso desde MIDI)
   function moveSelSilent(dir){
-    const list=(window.DS_EDIT_NOTES||[]).filter(r=>!r.rest);
+    const vc=(sel&&sel.voice)||'sol';
+    // edición independiente por clave: la lista de avance solo contiene la voz actual.
+    const all=(window.DS_EDIT_NOTES||[]).filter(r=>!r.rest);
+    const list = all.some(r=>r.voice) ? all.filter(r=>(r.voice||'sol')===vc) : all;
     if(!list.length) return;
     if(!sel){ selectNoteSilent(list[0]); return; }
-    let idx=list.findIndex(r=>r.measIdx===sel.measIdx && r.noteIdx===sel.noteIdx);
+    let idx=list.findIndex(r=>r.measIdx===sel.measIdx && r.noteIdx===sel.noteIdx && ((r.voice||'sol')===vc));
     if(idx<0) idx=0;
     idx+=dir;
     if(idx<0) idx=0; if(idx>=list.length) idx=list.length-1;
@@ -5192,8 +5354,9 @@ var DSedit = (function(){
     if(!sel){ selectNote(list[0]); }
     const D = DSgen.getDictado();
     if(!D || !sel) return;
-    const n = D.measures[sel.measIdx].notes[sel.noteIdx];
-    if(!n || n.midi == null) return;
+    const n = noteAt(D, sel);
+    if(!n) return;
+    if(n.midi == null){ if(D.gp){ delete n.noHead; } else return; }
     n.midi = midi;
     const vk = midiToVexKey(midi, false, D.keySig);
     n.k = vk.key;
@@ -5390,6 +5553,42 @@ const KEYS = [
   {key:'Gm', name:'Sol menor', mode:'minor', keySig:'Bb', tonicMidi:67},
 ];
 
+// ===== Tonalidades GRADO PROFESIONAL: hasta 5 alteraciones (may/men) =====
+// Usadas solo por el camino GP a dos voces. tonicMidi en torno a octava central.
+// keySig: armadura VexFlow. nAcc: nº de alteraciones (negativo=bemoles).
+const GP_KEYS = [
+  // mayores: keySig = su propia armadura
+  {key:'C',  name:'Do mayor',       mode:'major', keySig:'C',  tonicMidi:60, nAcc:0},
+  {key:'G',  name:'Sol mayor',      mode:'major', keySig:'G',  tonicMidi:67, nAcc:1},
+  {key:'D',  name:'Re mayor',       mode:'major', keySig:'D',  tonicMidi:62, nAcc:2},
+  {key:'A',  name:'La mayor',       mode:'major', keySig:'A',  tonicMidi:69, nAcc:3},
+  {key:'E',  name:'Mi mayor',       mode:'major', keySig:'E',  tonicMidi:64, nAcc:4},
+  {key:'B',  name:'Si mayor',       mode:'major', keySig:'B',  tonicMidi:71, nAcc:5},
+  {key:'F',  name:'Fa mayor',       mode:'major', keySig:'F',  tonicMidi:65, nAcc:-1},
+  {key:'Bb', name:'Si bemol mayor', mode:'major', keySig:'Bb', tonicMidi:70, nAcc:-2},
+  {key:'Eb', name:'Mi bemol mayor', mode:'major', keySig:'Eb', tonicMidi:63, nAcc:-3},
+  {key:'Ab', name:'La bemol mayor', mode:'major', keySig:'Ab', tonicMidi:68, nAcc:-4},
+  {key:'Db', name:'Re bemol mayor', mode:'major', keySig:'Db', tonicMidi:61, nAcc:-5},
+  // menores: keySig = armadura del RELATIVO MAYOR (mismo nº de alteraciones)
+  {key:'Am', name:'La menor',       mode:'minor', keySig:'C',  tonicMidi:69, nAcc:0},   // rel. Do M
+  {key:'Em', name:'Mi menor',       mode:'minor', keySig:'G',  tonicMidi:64, nAcc:1},   // rel. Sol M
+  {key:'Bm', name:'Si menor',       mode:'minor', keySig:'D',  tonicMidi:71, nAcc:2},   // rel. Re M
+  {key:'F#m',name:'Fa sostenido menor', mode:'minor', keySig:'A',  tonicMidi:66, nAcc:3},   // rel. La M (3♯)
+  {key:'C#m',name:'Do sostenido menor', mode:'minor', keySig:'E',  tonicMidi:61, nAcc:4},   // rel. Mi M (4♯)
+  {key:'G#m',name:'Sol sostenido menor',mode:'minor', keySig:'B',  tonicMidi:68, nAcc:5},   // rel. Si M (5♯)
+  {key:'Dm', name:'Re menor',       mode:'minor', keySig:'F',  tonicMidi:62, nAcc:-1},  // rel. Fa M
+  {key:'Gm', name:'Sol menor',      mode:'minor', keySig:'Bb', tonicMidi:67, nAcc:-2},  // rel. Si♭ M
+  {key:'Cm', name:'Do menor',       mode:'minor', keySig:'Eb', tonicMidi:60, nAcc:-3},  // rel. Mi♭ M
+  {key:'Fm', name:'Fa menor',       mode:'minor', keySig:'Ab', tonicMidi:65, nAcc:-4},  // rel. La♭ M
+  {key:'Bbm',name:'Si bemol menor', mode:'minor', keySig:'Db', tonicMidi:70, nAcc:-5},  // rel. Re♭ M
+];
+const GP_SHORT = {
+  'C':'Do M','G':'Sol M','D':'Re M','A':'La M','E':'Mi M','B':'Si M',
+  'F':'Fa M','Bb':'Si♭ M','Eb':'Mi♭ M','Ab':'La♭ M','Db':'Re♭ M',
+  'Am':'La m','Em':'Mi m','Bm':'Si m','F#m':'Fa♯ m','C#m':'Do♯ m','G#m':'Sol♯ m',
+  'Dm':'Re m','Gm':'Sol m','Cm':'Do m','Fm':'Fa m','Bbm':'Si♭ m'
+};
+
 /* ========== DICTADO base (melodía de ejemplo, en grados sobre la tónica) ========== */
 // Lo definimos como GRADOS (semitonos desde la tónica) para poder transportar.
 // Ejemplo La menor original: a b | c b a | b c d | c (sil) | e d | c b c | d c b | a(blanca)
@@ -5453,6 +5652,367 @@ function midiToVexKey(midi, useFlats, keySig){
 }
 
 let DICTADO = null;
+
+// ====================================================================
+// ===== GENERADOR GRADO PROFESIONAL (dictados a DOS VOCES) ===========
+// ====================================================================
+// Produce un objeto DICTADO con dos pentagramas (voz 'sol' y voz 'fa'),
+// esqueleto rítmico sin cabezas (salvo la tónica del compás 1 de cada voz),
+// y una secuencia armónica (un grado por compás) bajo el sistema.
+const DSgp = (function(){
+  // duración de cada token en pulsos (para validar que un pulso se llena)
+  const DUR_P = {'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75,'qr':1,'8r':0.5,'16r':0.25,'hr':2};
+  function tokDur(t){ const d=(typeof t==='object'?t.d:t); return DUR_P[d]!=null?DUR_P[d]:(DUR_P[(d||'').replace('r','')]||0); }
+
+  // ¿la célula es "figura de pulso" sola? (negra en binario, negra c.p. en ternario)
+  function isPulseCell(c, ternary){
+    if(c.pulses!==1) return false;
+    if(c.notes.length!==1) return false;
+    const d=(typeof c.notes[0]==='object'?c.notes[0].d:c.notes[0]);
+    return ternary ? (d==='qd') : (d==='q');
+  }
+  // nº de semicorcheas (figuras '16') que contiene una célula
+  function semis(c){ return c.notes.filter(n=>{const d=(typeof n==='object'?n.d:n); return (d||'').replace('r','')==='16';}).length; }
+  // ¿se mueve? (más de una figura, o subdivisión menor que el pulso)
+  function isMoving(c, ternary){ return !isPulseCell(c, ternary) && c.notes.length>1; }
+
+  // catálogo de células de 1 pulso para un bloque (ternario/binario),
+  // FILTRADO por las células activas del curso (activeCells) y con su freq configurada.
+  function poolFor(block, ternary, activeCells){
+    const CELLS=(window.DS&&window.DS.catalog&&window.DS.catalog.CELLS)||[];
+    let pool=CELLS.filter(c=> c.block===block && c.pulses===1 && !c.disabled && !c.tuplet );
+    if(activeCells && Object.keys(activeCells).length){
+      pool=pool.filter(c=>activeCells[c.id]);
+      // sobrescribir freq con la del curso (no la de la definición base)
+      pool=pool.map(c=>{ const f=activeCells[c.id].freq; return f? Object.assign({}, c, {freq:f}) : c; });
+    }
+    return pool;
+  }
+  function byFreq(pool, f){ return pool.filter(c=>c.freq===f); }
+  function pick(arr){ return arr.length? arr[Math.floor(Math.random()*arr.length)] : null; }
+
+  // elige una célula que se MUEVE, de nivel <= maxFreq segun curso
+  function pickMoving(pool, ternary, levels){
+    const cand=pool.filter(c=>isMoving(c, ternary) && levels.includes(c.freq));
+    return pick(cand) || pick(pool.filter(c=>isMoving(c,ternary)));
+  }
+  // figura de pulso del bloque
+  function pulseCellOf(pool, ternary){
+    return pool.find(c=>isPulseCell(c, ternary)) || null;
+  }
+  // célula movida "suave" para la voz pasiva (corcheas, o recurrente con pocas semis)
+  function pickPassiveActive(pool, ternary, allowSemis){
+    let cand=pool.filter(c=>isMoving(c,ternary) && (c.freq==='bas'||c.freq==='rec'));
+    if(!allowSemis) cand=cand.filter(c=>semis(c)===0);
+    return pick(cand) || pulseCellOf(pool, ternary);
+  }
+  // pasiva SUAVE: solo negras y corcheas (sin semicorcheas) -> cuando la protagonista se mueve
+  function pickPassiveSoft(pool, ternary){
+    const cand=pool.filter(c=>isMoving(c,ternary) && semis(c)===0);
+    return pick(cand) || pulseCellOf(pool, ternary);
+  }
+  // pasiva ACTIVA con ritmos puntuales/ocasionales (semicorcheas incluidas) -> cuando la protagonista reposa
+  function pickPassiveRich(pool, ternary){
+    // priorizar células ocasionales/puntuales (más movimiento, semicorcheas)
+    let cand=pool.filter(c=>isMoving(c,ternary) && (c.freq==='oca'||c.freq==='pun'));
+    if(!cand.length) cand=pool.filter(c=>isMoving(c,ternary));
+    return pick(cand) || pulseCellOf(pool, ternary);
+  }
+
+  // construye el perfil rítmico de la voz PROTAGONISTA para un compás:
+  // devuelve array de células (una por pulso). Marca qué pulsos "se mueven".
+  function protagonistBar(pool, ternary, nPulses, opts){
+    opts=opts||{};
+    const out=[];
+    const pulseCell=pulseCellOf(pool, ternary);
+    for(let p=0;p<nPulses;p++){
+      // arranque del dictado: el primer pulso del primer compás se mueve
+      const mp = (typeof opts.moveProb==='number') ? opts.moveProb : 0.6;
+      let movel = Math.random()<mp;
+      if(opts.forceFirstMove && p===0) movel=true;
+      // cierres (compás 4 y 8): casi todo figura de pulso + silencio
+      if(opts.closeBar){
+        if(p===0){ out.push(pulseCell); }
+        else { out.push({rest:true}); }
+        continue;
+      }
+      // cierre de SEMIFRASE (compases 2 y 6): el ÚLTIMO pulso es figura de pulso (reposo);
+      // los pulsos anteriores SE MUEVEN (garantizado) para dar contraste.
+      if(opts.semiClose){
+        if(p===nPulses-1){ out.push(pulseCell); continue; }
+        // pulsos anteriores al último: forzar movimiento real
+        const mv = pickMoving(pool, ternary, opts.levels||['bas','rec','oca']);
+        out.push( mv || pulseCell );
+        continue;
+      }
+      out.push( movel ? (pickMoving(pool, ternary, opts.levels||['bas','rec','oca']) || pulseCell) : pulseCell );
+    }
+    return out;
+  }
+
+  // construye la voz PASIVA como negativo de la protagonista, pulso a pulso
+  function passiveBar(protBar, pool, ternary, nPulses, opts){
+    opts=opts||{};
+    const out=[];
+    const pulseCell=pulseCellOf(pool, ternary);
+    for(let p=0;p<nPulses;p++){
+      const pc=protBar[p];
+      const protMoves = pc && !pc.rest && isMoving(pc, ternary);
+      const protRests = pc && pc.rest;
+      if(opts.closeBar){
+        // cierre: figura de pulso en p0, silencio resto.
+        // matiz "puente" (solo compás 4): la pasiva se mueve en el ÚLTIMO pulso (anacrusa a la 2ª frase).
+        const lastP = nPulses-1;
+        if(p===0){ out.push(pulseCell); }
+        else if(opts.bridge && p===lastP && Math.random()<0.5){ out.push(pickPassiveActive(pool, ternary, true)); }
+        else { out.push({rest:true}); }
+        continue;
+      }
+      // REGLA: en cada pulso una voz se mueve y la otra está a figura de pulso (reposo).
+      // Nunca las dos quietas a la vez.
+      if(protMoves){
+        // protagonista SE MUEVE -> pasiva en reposo.
+        //   1ºGP: figura de pulso pelada.
+        //   2ºGP: figura de pulso O combinaciones suaves de negras y corcheas (sin semicorcheas).
+        if(opts.passiveMix){
+          out.push( Math.random()<0.5 ? pulseCell : pickPassiveSoft(pool, ternary) );
+        } else {
+          out.push(pulseCell);
+        }
+      } else {
+        // protagonista REPOSA (figura de pulso o silencio) -> pasiva SE ACTIVA.
+        //   1ºGP: movimiento sencillo (negras/corcheas).
+        //   2ºGP: ritmos puntuales y ocasionales (semicorcheas incluidas).
+        if(opts.passiveMix){
+          out.push( pickPassiveRich(pool, ternary) );
+        } else {
+          out.push( pickPassiveSoft(pool, ternary) );
+        }
+      }
+    }
+    return out;
+  }
+
+  // pasa un array de células (una por pulso) a tokens de notas para un compás.
+  // sin cabeza: marcamos noHead:true salvo que se indique tonic.
+  function barToNotes(cells, ternary){
+    const notes=[];
+    cells.forEach(c=>{
+      if(!c){ notes.push({rest:true, d: ternary?'qd':'q'}); return; }
+      if(c.rest){ notes.push({rest:true, d: ternary?'qd':'q'}); return; }
+      (c.notes||[]).forEach(n=>{
+        const d=(typeof n==='object'?n.d:n);
+        if((d||'').includes('r')) notes.push({rest:true, d});
+        else notes.push({noHead:true, d});
+      });
+    });
+    return notes;
+  }
+
+  // genera el dictado GP completo
+  function generate(cfg){
+    cfg=cfg||{};
+    // 1) tonalidad al azar dentro del rango de alteraciones del curso
+    const lo=cfg.minAcc!=null?cfg.minAcc:0, hi=cfg.maxAcc!=null?cfg.maxAcc:4;
+    const keyPool=GP_KEYS.filter(k=>{ const a=Math.abs(k.nAcc); return a>=lo && a<=hi; });
+    const keyObj=pick(keyPool) || GP_KEYS[0];
+    // 2) compás al azar entre los permitidos, con el 9/8 menos probable
+    const meters=Object.keys(cfg.meters||{}).filter(m=>cfg.meters[m]);
+    const weightOf=m=>(m==='9/8'?1:4);   // 9/8 sale ~4 veces menos que el resto
+    let ts='2/4';
+    if(meters.length){
+      const bag=[]; meters.forEach(m=>{ const w=weightOf(m); for(let i=0;i<w;i++) bag.push(m); });
+      ts=bag[Math.floor(Math.random()*bag.length)];
+    }
+    const ternary=(ts==='6/8'||ts==='9/8'||ts==='3/8');
+    const nPulses=(ts==='2/4')?2:(ts==='3/4')?3:(ts==='4/4')?4:(ts==='6/8')?2:(ts==='9/8')?3:2;
+    const block=ternary?'ternario':'binario';
+    const pool=poolFor(block, ternary, cfg.activeCells);
+    // En 3/4 y 9/8, la voz PROTAGONISTA usa un material rítmico de un curso por debajo
+    // (gp1 -> 2º GE, gp2 -> 3º GE), para aliviar la dificultad del compás de tres pulsos.
+    const lowMeter = (ts==='3/4' || ts==='9/8');
+    const poolProt = (lowMeter && cfg.activeCellsProtLow)
+      ? poolFor(block, ternary, cfg.activeCellsProtLow)
+      : pool;
+    // niveles disponibles para la protagonista: si usa el pool reducido, baja un escalón
+    const levelsProt = (lowMeter && cfg.activeCellsProtLow)
+      ? ((cfg.rhythmCourseLow==='ge3') ? ['bas','rec','oca'] : ['bas','rec'])
+      : null;  // null -> usa los levels normales
+    // 3) secuencia armónica al azar del banco del curso
+    const bank = (cfg.harmonyLevel==='extra')
+      ? window.GP_HARMONY.base.concat(window.GP_HARMONY.extra)
+      : window.GP_HARMONY.base;
+    const harmony = pick(bank).slice();   // 8 grados
+    // 4) protagonista: 75% sol, 25% fa
+    const protag = (Math.random()<((cfg.protagonist&&cfg.protagonist.g)||0.75)) ? 'sol' : 'fa';
+    const levels = (cfg.rhythmCourse==='ge4') ? ['bas','rec','oca','pun'] : ['bas','rec','oca'];
+    const passiveMix = !!cfg.passiveMix;
+
+    // 5) construir 8 compases para cada voz
+    const measSol=[], measFa=[];
+    for(let m=0;m<8;m++){
+      const isClose = (m===3 || m===7);     // compases 4 y 8 (índices 3 y 7): cierre de frase
+      const isBridge = (m===3);             // el 4 admite puente en p2
+      const isSemiClose = (m===1 || m===5); // compases 2 y 6: cierre de semifrase (último pulso = reposo)
+      // en 3/4 la protagonista se mueve menos (3 pulsos cargan mucho); resto de compases igual.
+      const moveProb = (ts==='3/4') ? 0.42 : 0.6;
+      const protLevels = levelsProt || levels;
+      const protOpts={ levels:protLevels, forceFirstMove:(m===0), closeBar:isClose, semiClose:isSemiClose, moveProb };
+      const protCells=protagonistBar(poolProt, ternary, nPulses, protOpts);
+      const passOpts={ passiveMix, closeBar:isClose, bridge:isBridge };
+      const passCells=passiveBar(protCells, pool, ternary, nPulses, passOpts);
+      const solCells = (protag==='sol')?protCells:passCells;
+      const faCells  = (protag==='sol')?passCells:protCells;
+      measSol.push({ notes: barToNotes(solCells, ternary) });
+      measFa.push({ notes: barToNotes(faCells, ternary) });
+    }
+
+    // === LÍMITE de la síncopa breve (semicorchea-corchea-semicorchea, "16 8 16") ===
+    // Máximo UNA por sistema (compases 0-3 y 4-7). Las extra se sustituyen por figura de pulso.
+    // Solo se aplica si el curso permite esta célula con pasiva activa (2º GP). En 1º GP no aparece.
+    (function limitSincBreve(){
+      const pulseTok = ternary ? 'qd' : 'q';
+      // detecta si un grupo de tokens que ocupa UN pulso es la síncopa breve 16-8-16
+      function isSincBreve(seq){
+        return seq.length===3 && seq[0].d==='16' && seq[1].d==='8' && seq[2].d==='16'
+               && !seq[0].rest && !seq[1].rest && !seq[2].rest;
+      }
+      const DBL={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+      const PB = ternary ? 1.5 : 1;
+      function processVoice(meas, sysStart){
+        let count=0;
+        for(let mi=sysStart; mi<sysStart+4; mi++){
+          const notes=meas[mi].notes;
+          // agrupar por pulso
+          let acc=0, out=[], i=0;
+          const pulses=[];
+          let cur=[], curPulse=0;
+          notes.forEach(n=>{
+            const p=Math.floor(acc/PB+1e-6);
+            if(p!==curPulse){ pulses.push(cur); cur=[]; curPulse=p; }
+            cur.push(n); acc+=DBL[(n.d||'').replace('r','')]||0;
+          });
+          if(cur.length) pulses.push(cur);
+          // revisar cada pulso
+          let changed=false;
+          const newNotes=[];
+          pulses.forEach(seq=>{
+            if(isSincBreve(seq)){
+              count++;
+              if(count>1){
+                // sustituir por figura de pulso (conservando cabeza si la había)
+                const head=seq.find(x=>x.k);
+                const repl={ d:pulseTok };
+                if(head){ repl.k=head.k; repl.midi=head.midi; } else { repl.noHead=true; }
+                newNotes.push(repl); changed=true; return;
+              }
+            }
+            seq.forEach(n=>newNotes.push(n));
+          });
+          if(changed) meas[mi].notes=newNotes;
+        }
+      }
+      processVoice(measSol, 0); processVoice(measSol, 4);
+      processVoice(measFa, 0); processVoice(measFa, 4);
+    })();
+
+    // === NORMA GLOBAL: no repetir el mismo ritmo de pulso 3 veces seguidas (por voz) ===
+    // Los pulsos que son SILENCIO no cuentan (ni rompen ni continúan la racha).
+    (function noTripleRepeat(){
+      const pulseTok = ternary ? 'qd' : 'q';
+      const DBL={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+      const PB = ternary ? 1.5 : 1;
+      // firma rítmica de un grupo de tokens (secuencia de duraciones, sin alturas)
+      function sig(seq){ return seq.map(n=>(n.d||'')).join('-'); }
+      function isAllRest(seq){ return seq.every(n=>n.rest); }
+      function processVoice(meas){
+        let prevSig=null, runLen=0;
+        for(let mi=0; mi<8; mi++){
+          // los compases de cierre (4 y 8) no se tocan y reinician la racha
+          if(mi===3 || mi===7){ prevSig=null; runLen=0; continue; }
+          const notes=meas[mi].notes;
+          // agrupar por pulso
+          let acc=0, cur=[], cp=0; const pulses=[];
+          notes.forEach(n=>{ const p=Math.floor(acc/PB+1e-6); if(p!==cp){ pulses.push(cur); cur=[]; cp=p; } cur.push(n); acc+=DBL[(n.d||'').replace('r','')]||0; });
+          if(cur.length) pulses.push(cur);
+          let changed=false; const newNotes=[];
+          pulses.forEach(seq=>{
+            // los silencios no cuentan para la racha: se copian tal cual
+            if(isAllRest(seq)){ seq.forEach(n=>newNotes.push(n)); return; }
+            const s=sig(seq);
+            if(s===prevSig){ runLen++; } else { prevSig=s; runLen=1; }
+            if(runLen>=3){
+              // romper la racha: sustituir este pulso por figura de pulso
+              // (salvo que YA sea figura de pulso, en cuyo caso lo dejamos: no hay nada más simple)
+              if(s!==pulseTok){
+                const head=seq.find(x=>x.k);
+                const repl={ d:pulseTok };
+                if(head){ repl.k=head.k; repl.midi=head.midi; } else { repl.noHead=true; }
+                newNotes.push(repl); changed=true;
+                prevSig=pulseTok; runLen=1;
+                return;
+              } else {
+                // si la racha es de figuras de pulso, la rompemos metiendo un movimiento simple
+                // (dos corcheas) para no dejar 3 pulsos idénticos
+                const head=seq.find(x=>x.k);
+                const eighth = ternary
+                  ? [{d:'8'},{d:'8'},{d:'8'}]   // en ternario, 3 corcheas
+                  : [{d:'8'},{d:'8'}];          // en binario, 2 corcheas
+                if(head){ eighth[0].k=head.k; eighth[0].midi=head.midi; for(let k=1;k<eighth.length;k++) eighth[k].noHead=true; }
+                else { eighth.forEach(e=>e.noHead=true); }
+                eighth.forEach(e=>newNotes.push(e)); changed=true;
+                prevSig=sig(eighth); runLen=1;
+                return;
+              }
+            }
+            seq.forEach(n=>newNotes.push(n));
+          });
+          if(changed) meas[mi].notes=newNotes;
+        }
+      }
+      processVoice(measSol); processVoice(measFa);
+    })();
+
+    // 6) poner la cabeza de la TÓNICA en la 1ª nota real del compás 1 de cada voz
+    function placeTonic(meas, midi, keySig){
+      const first=meas[0]; if(!first||!first.notes||!first.notes.length) return;
+      for(const n of first.notes){
+        if(n.rest) continue;
+        const vk=midiToVexKey(midi, false, keySig);
+        n.k=vk.key; n.midi=midi; delete n.noHead;
+        return;
+      }
+    }
+    // tónica central: sol cerca de octava 4, fa cerca de octava 3
+    const tonicSol = nearestTonic(keyObj.tonicMidi, 67);  // ~Sol4
+    const tonicFa  = nearestTonic(keyObj.tonicMidi, 50);  // ~Re3
+    placeTonic(measSol, tonicSol, keyObj.keySig);
+    placeTonic(measFa,  tonicFa,  keyObj.keySig);
+
+    return {
+      gp:true, voices:2,
+      key:keyObj.key, name:keyObj.name, mode:keyObj.mode, keySig:keyObj.keySig,
+      tonicMidi:keyObj.tonicMidi, nAcc:keyObj.nAcc,
+      ts, beatsPerBar:nPulses, pulseFig:(ternary?'qd':'q'),
+      protag, harmony,
+      measures: measSol,      // voz superior (clave de sol) -> compatibilidad
+      measuresFa: measFa,     // voz inferior (clave de fa)
+      shortKey: (GP_SHORT[keyObj.key]||keyObj.key)
+    };
+  }
+  // tónica (misma clase de altura que tonicMidi base) más cercana a un midi objetivo
+  function nearestTonic(baseTonicMidi, targetMidi){
+    const pc=((baseTonicMidi%12)+12)%12;
+    let best=null, bestD=1e9;
+    for(let m=targetMidi-12;m<=targetMidi+12;m++){
+      if(((m%12)+12)%12===pc){ const d=Math.abs(m-targetMidi); if(d<bestD){bestD=d;best=m;} }
+    }
+    return best!=null?best:baseTonicMidi;
+  }
+
+  return { generate, GP_KEYS, GP_SHORT };
+})();
+
 function buildDictadoFrom(keyObj){
   const useFlats = ['F','Bb','Dm','Gm'].includes(keyObj.key);
   const measures = BASE_MELODY.map(m=>({
@@ -5510,6 +6070,12 @@ function maxOscillation(D){
   return maxLen;
 }
 function genReal(){
+  const curso0=window.DS_ACTIVE_COURSE||'';
+  // === GRADO PROFESIONAL: generador a dos voces ===
+  if(curso0==='gp1' || curso0==='gp2'){
+    const cfg=(window.DS_COURSE_CFG)||{};
+    try{ return DSgp.generate(cfg); }catch(e){ console.warn('[GP] error generando', e); window._GP_ERR=(e&&e.message)||String(e); return null; }
+  }
   const cat=activeCatalog();
   if(window.DGEN && cat && cat.active.length){
     const LV=window.DS_LEVEL||{};
@@ -5940,6 +6506,231 @@ const DSgen = (function(){
       requestAnimationFrame(()=>{ e.style.opacity='1'; });
     });
   }
+  // ===================================================================
+  // ===== RENDER GRADO PROFESIONAL: dos voces (sol + fa) ==============
+  // ===================================================================
+  function drawGP(host){
+    const D=DICTADO;
+    const VF=Vex.Flow;
+    const W=Math.max(420,(host.clientWidth||820)-28);
+    // ===== GEOMETRÍA DE DOS SISTEMAS =====
+    // Cada sistema: pentagrama de sol (yTop) + pentagrama de fa (yTop+staffGap).
+    // Los grados van DENTRO del sistema (entre sol y fa), así que no necesitan hueco extra.
+    const staffGap=104;         // separación sol<->fa dentro del sistema (aloja los grados, más aire)
+    const STAFF_H=48;           // alto real de un pentagrama (con margen para notas/plicas)
+    const topY=26;              // música pegada a las etiquetas (tonalidad/protagonista en y=16)
+    const betweenSys=52;        // separación entre el fondo del fa de un sistema y el sol del siguiente
+    const sysGap=staffGap + STAFF_H + betweenSys;
+    const H=topY + sysGap + staffGap + STAFF_H + 56;
+    const renderer=new VF.Renderer(host, VF.Renderer.Backends.SVG);
+    renderer.resize(W, H);
+    const ctx=renderer.getContext();
+    ctx.setFillStyle('#0b1220'); ctx.setStrokeStyle('#0b1220');
+    window.DS_EDIT_NOTES=[];
+    GP_BAR_RECTS=[];
+
+    const DBL={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75};
+    const ternary=(D.pulseFig==='qd');
+    const PB=ternary?1.5:1;
+    const startX=6, usable=W-startX-10;
+    // tónica central de cada voz, en grafía VexFlow (cabeza por defecto de las figuras)
+    function nearTon(base, target){ const pc=((base%12)+12)%12; let best=base,bd=1e9; for(let mm=target-12;mm<=target+12;mm++){ if(((mm%12)+12)%12===pc){const dd=Math.abs(mm-target); if(dd<bd){bd=dd;best=mm;}} } return best; }
+    const tonSolMidi=nearTon(D.tonicMidi, 67);   // ~Sol4
+    const tonFaMidi =nearTon(D.tonicMidi, 50);   // ~Re3
+    const headSol = midiToVexKey(tonSolMidi, false, D.keySig).key;
+    const headFa  = midiToVexKey(tonFaMidi,  false, D.keySig).key;
+
+    // construye StaveNotes de una voz para un compás. clef: 'treble'|'bass'.
+    // headKey = grafía VexFlow de la tónica de esa voz (todas las figuras llevan cabeza).
+    function buildBarNotes(meas, clef, headKey){
+      const notes=[]; const figs=[];
+      const defKey = headKey || ((clef==='bass') ? 'd/3' : 'g/4');
+      // silencio neutro: 3ª línea (centro) del pentagrama -> b/4 en sol, b/2 en fa
+      const restKey = (clef==='bass') ? 'd/3' : 'b/4';
+      (meas.notes||[]).forEach((n,qi)=>{
+        const rest=!!n.rest;
+        const dur=(n.d||'q').replace('r','');
+        const isHead=(!!n.k && !n.noHead);
+        const key = rest ? restKey : (n.k ? n.k : defKey);
+        const sn=new VF.StaveNote({keys:[key], duration:dur+(rest?'r':''), clef});
+        // dirección de plica según la altura: en/por encima de la línea central -> plica abajo.
+        if(!rest){
+          try{
+            const props=sn.getKeyProps()[0];   // {line: nº de línea, 0=línea inferior...}
+            // la línea central del pentagrama es la 3 (índice ~2 en VexFlow: line 3.0)
+            const dir = (props && props.line>=3) ? -1 : 1;   // >=3 (línea central o más agudo) -> abajo
+            sn.setStemDirection(dir);
+          }catch(e){}
+        }
+        if(dur.includes('d')){ try{ VF.Dot.buildAndAttach([sn],{all:true}); }catch(e){} }
+        notes.push(sn);
+        figs.push({sn, n, rest, dur, isHead, qi});
+      });
+      return {notes, figs};
+    }
+
+    // agrupa las vigas por PULSO: las figuras que caen dentro del mismo pulso
+    // (negra con puntillo en ternario, negra en binario) se vigan juntas.
+    function beamByPulse(figs, ts, clef){
+      const beams=[];
+      const durOf=f=>{ const d=(f.dur||''); if(d==='qd')return 1.5; if(d==='8d')return 0.75; return DBL[d.replace('d','')]||1; };
+      // posición acumulada (en negras) de cada figura
+      let acc=0;
+      const withPos=figs.map(f=>{ const o={f, start:acc, dur:durOf(f)}; acc+=o.dur; return o; });
+      // recorrer pulso a pulso
+      const totalPulses=Math.round(acc/PB);
+      for(let p=0;p<totalPulses;p++){
+        const lo=p*PB-1e-6, hi=(p+1)*PB-1e-6;
+        // figuras vigables (corchea/semicorchea, no silencio) cuyo inicio cae en este pulso
+        const inPulse=withPos.filter(o=>o.start>=lo && o.start<hi && !o.f.rest && (o.f.dur==='8'||o.f.dur==='16'||o.f.dur==='8d'));
+        if(inPulse.length>1){
+          try{ beams.push(new VF.Beam(inPulse.map(o=>o.f.sn))); }catch(e){}
+        }
+      }
+      return beams;
+    }
+
+    function harmonyAt(i){ return (D.harmony && D.harmony[i]) ? D.harmony[i] : ''; }
+
+    // dibuja un sistema (4 compases) en y dado. mIndexBase = 0 ó 4.
+    function drawSystem(yTop, mBase){
+      // anchos: primer compás con clave+armadura+(compás en sys0)
+      const sys0=(mBase===0);
+      const extraFirst = 56 + 18 + (sys0?22:0);
+      const avail=usable-extraFirst;
+      // ancho de cada compás proporcional a su densidad (nº de notas de las dos voces),
+      // para que los compases con muchas corcheas/semis no desborden al siguiente.
+      const measWeights=[];
+      for(let mi=0; mi<4; mi++){
+        const measIdx=mBase+mi;
+        const nSol=(D.measures[measIdx]&&D.measures[measIdx].notes.length)||1;
+        const nFa =(D.measuresFa[measIdx]&&D.measuresFa[measIdx].notes.length)||1;
+        measWeights.push(Math.max(nSol,nFa));
+      }
+      const wSum=measWeights.reduce((a,b)=>a+b,0)||4;
+      const wEqBase=avail*0.40/4, wPropTotal=avail*0.60;
+      const wOf=(mi)=> wEqBase + wPropTotal*(measWeights[mi]/wSum);
+      let x=startX;
+      const yG=yTop, yF=yTop+staffGap;
+      const staves=[];
+      for(let mi=0; mi<4; mi++){
+        const measIdx=mBase+mi;
+        const w=(mi===0? wOf(mi)+extraFirst : wOf(mi));
+        const sG=new VF.Stave(x, yG, w);
+        const sF=new VF.Stave(x, yF, w);
+        if(mi===0){
+          sG.addClef('treble'); sF.addClef('bass');
+          sG.addKeySignature(D.keySig); sF.addKeySignature(D.keySig);
+          if(sys0){ sG.addTimeSignature(D.ts); sF.addTimeSignature(D.ts); }
+        }
+        // doble barra final en el último compás del segundo sistema
+        if(mBase===4 && mi===3){ try{ sG.setEndBarType(VF.Barline.type.END); sF.setEndBarType(VF.Barline.type.END); }catch(e){} }
+        sG.setContext(ctx).draw(); sF.setContext(ctx).draw();
+        staves.push({sG,sF,measIdx,x,w});
+        x+=w;
+      }
+      // conectores: SIN llave (brace). Solo barra de unión al inicio y al final del sistema.
+      try{
+        new VF.StaveConnector(staves[0].sG, staves[0].sF).setType('singleLeft').setContext(ctx).draw();
+        const lastConn=new VF.StaveConnector(staves[staves.length-1].sG, staves[staves.length-1].sF);
+        // doble barra final en el último compás del segundo sistema (final del dictado)
+        lastConn.setType(mBase===4 ? 'boldDoubleRight' : 'singleRight').setContext(ctx).draw();
+      }catch(e){}
+
+      // notas por compás: las DOS voces se formatean JUNTAS para que la 1ª nota de
+      // cada pulso de una voz quede alineada con la 1ª nota del mismo pulso de la otra.
+      staves.forEach((st,mi)=>{
+        const measIdx=st.measIdx;
+        const built={};   // voice -> {notes, figs, voiceVF, beams}
+        ['sol','fa'].forEach(voice=>{
+          const clef=(voice==='sol')?'treble':'bass';
+          const meas=(voice==='sol')?D.measures[measIdx]:D.measuresFa[measIdx];
+          if(!meas) return;
+          const {notes, figs}=buildBarNotes(meas, clef, voice==='sol'?headSol:headFa);
+          const voiceVF=new VF.Voice({num_beats:D.beatsPerBar, beat_value: ternary?8:4, resolution:VF.RESOLUTION}).setMode(VF.Voice.Mode.SOFT);
+          voiceVF.setStrict(false);
+          voiceVF.addTickables(notes);
+          built[voice]={notes, figs, voiceVF, beams:beamByPulse(figs, D.ts, clef)};
+        });
+        // formatear juntas (alineación temporal de las dos voces)
+        const voicesArr=[]; if(built.sol) voicesArr.push(built.sol.voiceVF); if(built.fa) voicesArr.push(built.fa.voiceVF);
+        if(voicesArr.length){
+          const fmtW = st.w - (mi===0 ? (extraFirst+22) : 26);
+          try{
+            // joinVoices de cada voz POR SEPARADO (si se unen las dos juntas, VexFlow
+            // colapsa las figuras simultáneas idénticas y se pierden silencios).
+            // El format conjunto mantiene la alineación temporal entre voces.
+            const fmt=new VF.Formatter();
+            voicesArr.forEach(v=>fmt.joinVoices([v]));
+            fmt.format(voicesArr, Math.max(40, fmtW));
+          }catch(e){}
+        }
+        // dibujar cada voz en su pentagrama
+        ['sol','fa'].forEach(voice=>{
+          const b=built[voice]; if(!b) return;
+          const stave=(voice==='sol')?st.sG:st.sF;
+          b.voiceVF.draw(ctx, stave);
+          b.beams.forEach(bm=>bm.setContext(ctx).draw());
+          b.figs.forEach(f=>{
+            let el=null; try{ el=f.sn.getSVGElement&&f.sn.getSVGElement(); }catch(e){}
+            if(f.rest){
+              window.DS_EDIT_NOTES.push({sn:f.sn, el, voice, measIdx, noteIdx:f.qi, rest:true});
+              return;
+            }
+            window.DS_EDIT_NOTES.push({sn:f.sn, el, voice, measIdx, noteIdx:f.qi, rest:false, empty:!f.isHead});
+          });
+        });
+      });
+
+      // ===== CARRIL DE GRADOS (solo editor) =====
+      // Banda fina que recorre el sistema de izquierda a derecha, situada DEBAJO del
+      // pentagrama de fa. Los grados se alojan dentro de ella, nunca sobre el pentagrama.
+      const editing = (function(){ const eb=document.getElementById('editBar'); return !!(eb && eb.style.display==='flex'); })();
+      if(editing){
+        // GRADOS: en el centro REAL del hueco entre el pentagrama de sol y el de fa.
+        // Usamos la API de VexFlow para las posiciones reales (no constantes estimadas).
+        ctx.save();
+        ctx.setFillStyle('#5b9dff');
+        ctx.setFont('Helvetica Neue, Helvetica, Arial', 14, 'bold');
+        staves.forEach((st)=>{
+          const g=harmonyAt(st.measIdx);
+          if(!g) return;
+          let gx, yText;
+          try{ gx=st.sF.getNoteStartX(); }catch(e){ gx=st.x+10; }
+          try{
+            const solBottom = st.sG.getBottomY();      // fondo del pentagrama de sol
+            const faTop = st.sF.getYForLine(0);          // línea superior del pentagrama de fa
+            // centro del hueco; el baseline del texto se sitúa ligeramente por encima del centro
+            yText = Math.round((solBottom + faTop)/2) - 5;
+          }catch(e){ yText = Math.round((yG + 32 + yF)/2); }
+          try{ ctx.fillText(g, gx, yText); }catch(e){}
+        });
+        ctx.restore();
+      }
+    }
+
+    drawSystem(topY, 0);
+    drawSystem(topY+sysGap, 4);
+
+    // etiqueta de tonalidad arriba a la izquierda (como referencia para Iago en el editor)
+    try{
+      ctx.save(); ctx.setFillStyle('#5b9dff');
+      ctx.setFont('Helvetica Neue, Helvetica, Arial', 13, 'bold');
+      ctx.fillText(D.shortKey||'', startX+2, 16);
+      // indicador de VOZ PROTAGONISTA (solo en el editor): ayuda para construir el dictado
+      const editingTop = (function(){ const eb=document.getElementById('editBar'); return !!(eb && eb.style.display==='flex'); })();
+      if(editingTop){
+        const protLabel = (D.protag==='sol') ? 'Protagonista: clave de SOL' : 'Protagonista: clave de FA';
+        ctx.setFillStyle('#e08537');   // naranja, para distinguirlo de tonalidad/grados
+        ctx.setFont('Helvetica Neue, Helvetica, Arial', 12, 'bold');
+        const tw=ctx.measureText(D.shortKey||'').width||0;
+        ctx.fillText(protLabel, startX+2+tw+24, 16);
+      }
+      ctx.restore();
+    }catch(e){}
+  }
+  let GP_BAR_RECTS=[];
+
   function redraw(){
     const host=document.getElementById('dictScore');
     if(!host) return;
@@ -5957,6 +6748,8 @@ const DSgen = (function(){
     if(cta) cta.style.display='none';
     host.style.display='flex';
     setPlayersEnabled(true);
+    // === GRADO PROFESIONAL: render a dos voces (camino propio) ===
+    if(DICTADO.gp){ try{ drawGP(host); }catch(e){ console.warn('[GP] error render', e); } return; }
     // (se retira el texto "Tonalidad: oculta · compás oculto · 2 frases · ♩=" a petición de Iago)
     const gm0=document.getElementById('genMeta'); if(gm0) gm0.textContent='';
     const W=Math.max(320,(host.clientWidth||760)-28);
@@ -6030,7 +6823,10 @@ const DSgen = (function(){
         // guardar la Y real de las líneas superior/inferior del pentagrama (para el resaltado)
         let topLineY=y+13, botLineY=y+53;
         try{ topLineY=stave.getYForLine(0); botLineY=stave.getYForLine(4); }catch(e){}
-        barRects[measIdx]={staveX:x, y:y, staveW:w, topLineY:topLineY, botLineY:botLineY};
+        let _nsX=x+12, _neX=x+w-6;
+        try{ _nsX=stave.getNoteStartX(); }catch(e){}
+        try{ _neX=stave.getNoteEndX(); }catch(e){}
+        barRects[measIdx]={staveX:x, y:y, staveW:w, topLineY:topLineY, botLineY:botLineY, noteStartX:_nsX, noteEndX:_neX};
         drawMeasureNotes(ctx, stave, measIdx, mi===0);
         x+=w;
       }
@@ -6038,6 +6834,32 @@ const DSgen = (function(){
     // si hay un modo de pista activo (el alumno pulsó "Pista" y aún no eligió pulso),
     // recrear los cuadrados sobre el pentagrama recién dibujado
     if(pistaPick) enablePistaPicking();
+  }
+
+  // Calcula, para CADA nota del compás (en orden), qué accidental se MOSTRARÍA en la solución
+  // completa aplicando la regla de alteración vigente. Devuelve un array paralelo a meas.notes
+  // con '#','b','n' o '' (sin signo). Lo usa la pista melódica para que la cabeza tenga el
+  // mismo aspecto que tendrá al revelar el dictado.
+  function solucionAccidentals(measIdx){
+    const meas=DICTADO.measures[measIdx]; if(!meas) return [];
+    const accInBar={};
+    const ksOf=(typeof keySigAccidentalFor==='function')?keySigAccidentalFor:null;
+    return meas.notes.map(n=>{
+      const rest=(n.d||'').includes('r');
+      if(rest || n.midi==null) return '';
+      const head=(n.k||'').split('/')[0];
+      const letter=head[0];
+      const accChar=head.slice(1);
+      const noteAcc = accChar==='#'?'#':(accChar==='b'?'b':'');
+      const octave=(n.k||'').split('/')[1]||'4';
+      const noteId=letter+'/'+octave;
+      const ksAcc = ksOf ? ksOf(DICTADO.keySig, letter) : '';
+      const carried = (accInBar[noteId]!==undefined)?accInBar[noteId]:ksAcc;
+      const carriedSign = (carried==='n')?'':carried;
+      let show='';
+      if(noteAcc!==carriedSign){ show = noteAcc || 'n'; accInBar[noteId]=show; }
+      return show;
+    });
   }
 
   function measureRenderItems(measIdx){
@@ -6066,25 +6888,37 @@ const DSgen = (function(){
       const f = tp.def ? (tp.def.notes/tp.def.num) : (2/3); // notes/num = 2/3 en tresillo 3:2
       for(let q=tp.start; q<tp.start + (tp.def?tp.def.first:3); q++){ if(q<tupFactor.length) tupFactor[q]=f; }
     });
-    const figs=meas.notes.map((n,qi)=>({n, dur:(n.dur==='full'? bpb*PB : (DB[(n.d||'').replace('r','')]||1) * tupFactor[qi])}));
+    const figs=meas.notes.map((n,qi)=>({n, qi, dur:(n.dur==='full'? bpb*PB : (DB[(n.d||'').replace('r','')]||1) * tupFactor[qi])}));
     let acc=0; figs.forEach(f=>{ f.start=acc; acc+=f.dur; });
     const out=[];
     for(let p=0;p<bpb;p++){
       const gp=baseP+p;
       const revealed=revealedPulses.has(gp);
       const here=figs.filter(f=> f.start>=p*PB-1e-9 && f.start<(p+1)*PB-1e-9);
-      if(revealed && here.length){
+      // Si en el MISMO pulso se han pedido las dos pistas (rítmica + melódica), se muestra
+      // la notación REAL completa de ese pulso (ritmo en su sitio y cabezas en su altura).
+      const bothHints = (pistaRit===gp && pistaMel===gp);
+      if((revealed || bothHints) && here.length){
         here.forEach(f=>out.push({tok:f.n, filler:false}));
       } else if(pistaRit===gp && here.length){
         // PISTA RÍTMICA: misma duración y agrupación, pero cabeza en 3ª línea (altura neutra)
+        // Fijamos también el midi a la nota neutra para que TODAS las plicas tengan la misma
+        // dirección y la viga salga RECTA (sin insinuar la altura real).
         const _pistaNeutralKey = (DICTADO&&DICTADO.clef==='bass') ? 'b/2' : 'b/4';
-        here.forEach(f=>out.push({tok:{...f.n, k:_pistaNeutralKey, alt:null}, filler:false, pistaNeutral:true}));
+        // midi 1 por debajo del centro (MID) -> plica hacia ARRIBA (lo más neutro), viga recta.
+        const _pistaNeutralMidi = (DICTADO&&DICTADO.clef==='bass') ? 46 : 70;
+        here.forEach(f=>out.push({tok:{...f.n, k:_pistaNeutralKey, alt:null, midi:_pistaNeutralMidi}, filler:false, pistaNeutral:true}));
       } else if(pistaMel===gp && here.length){
-        // PISTA MELÓDICA: solo cabezas (negras: sin banderola), equidistantes en el pulso,
-        // SIN plica (se oculta en el render) ni corchete ni tuplet. La voz va en modo SOFT,
-        // así que no exige cuadratura exacta y podemos usar negras sueltas.
+        // PISTA MELÓDICA: solo cabezas (negras: sin banderola), repartidas en el pulso,
+        // SIN plica (se oculta en el render) ni corchete ni tuplet. La voz va en modo SOFT.
+        // La grafía (signo/becuadro) es la MISMA que tendrá en la solución completa.
+        const solAcc = solucionAccidentals(measIdx);
         const heads=here.filter(f=>!(f.n.d||'').includes('r'));
-        heads.forEach(f=>out.push({tok:{k:f.n.k, alt:f.n.alt, d:'q'}, filler:false, pistaMelodic:true}));
+        heads.forEach(f=>{
+          // forzamos exactamente el signo que mostrará la solución (o ninguno)
+          const forced = (f.qi!=null) ? solAcc[f.qi] : '';
+          out.push({tok:{k:f.n.k, alt:f.n.alt, d:'q', _melForcedAcc:forced}, filler:false, pistaMelodic:true});
+        });
       } else {
         out.push({tok:{rest:true, d: DICTADO.pulseFig==='qd'?'qdr':'qr', k: DICTADO.clef==='bass'?'b/2':'b/4'}, filler:true});
       }
@@ -6121,7 +6955,10 @@ const DSgen = (function(){
       const sn=new VF.StaveNote({keys:[key], duration:dur+(rest?'r':''), clef: isBassClef?'bass':'treble', stem_direction:1});
       sn._editMidi = rest? null : n.midi;   // guardar midi para calcular dirección de plica
       if(durTok.includes('d')) sn.addModifier(new VF.Dot(),0);  // puntillo también en silencios
-      if(!rest){
+      if(!rest && n._melForcedAcc!==undefined){
+        // PISTA MELÓDICA: usar EXACTAMENTE el signo que mostrará la solución (precalculado).
+        if(n._melForcedAcc){ sn.addModifier(new VF.Accidental(n._melForcedAcc),0); }
+      } else if(!rest){
         // n.k tiene formato "<letra><acc?>/<octava>", p.ej. "f#/4", "eb/4", "b/3" (Si3, sin alteración).
         // OJO: la letra 'b' es la nota Si; el bemol es el carácter QUE SIGUE a la letra, no un 'b' en cualquier sitio.
         const head=(n.k||'').split('/')[0];        // p.ej. "f#", "eb", "b"
@@ -6152,11 +6989,13 @@ const DSgen = (function(){
         // (no hace falta actualizar accInBar porque carried ya coincide)
       }
       if(it.filler){ sn.setStyle({fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }
-      // PISTA RÍTMICA: mostrar plica/corchete pero SIN cabeza (la cabeza haría pensar en una nota concreta)
-      if(it.pistaNeutral){ try{ sn.setKeyStyle(0, {fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }catch(e){} }
+      // PISTA RÍTMICA: mostrar plica/corchete/puntillo pero SIN cabeza.
+      // Lo hacemos en postproceso (ocultar solo el glifo de la cabeza), porque setKeyStyle
+      // transparente ocultaría también el puntillo (va asociado a la cabeza).
+      // (se marca con it.pistaNeutral y se procesa tras voice.draw)
       // PISTA MELÓDICA: mostrar solo la cabeza, SIN plica ni corchete
       if(it.pistaMelodic){ try{ sn.setStemStyle({fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }catch(e){} }
-      vfnotes.push({sn, tok:n, filler:it.filler, pistaMelodic:it.pistaMelodic, modelIdx:it.modelIdx});
+      vfnotes.push({sn, tok:n, filler:it.filler, pistaMelodic:it.pistaMelodic, pistaNeutral:it.pistaNeutral, modelIdx:it.modelIdx});
     });
     const tupIdx=new Set();
     tupletDefs.forEach(tp=>{ for(let i=tp.start;i<tp.start+tp.def.first;i++) tupIdx.add(i); });
@@ -6222,6 +7061,24 @@ const DSgen = (function(){
     voice.draw(ctx,stave);
     beams.forEach(b=>b.setContext(ctx).draw());
     tupletGroups.forEach(t=>t.setContext(ctx).draw());
+    // PISTA RÍTMICA: ocultar SOLO el glifo de la cabeza de cada nota neutral, dejando visibles
+    // plica, corchete/viga y puntillo. Buscamos en el SVG de cada nota los <path> de notehead.
+    vfnotes.forEach(o=>{
+      if(!o.pistaNeutral) return;
+      try{
+        const el=(o.sn.attrs&&o.sn.attrs.el)||(o.sn.getSVGElement&&o.sn.getSVGElement());
+        if(!el) return;
+        // las cabezas en VexFlow se dibujan como <g class="vf-notehead"> (o paths dentro);
+        // ocultamos esos grupos/paths, sin tocar plica (vf-stem) ni puntillo (vf-dot/modifiers).
+        const heads=el.querySelectorAll('.vf-notehead');
+        if(heads.length){ heads.forEach(h=>{ h.style.display='none'; }); }
+        else {
+          // fallback: la primera ruta del grupo suele ser la cabeza
+          const firstPath=el.querySelector('path');
+          if(firstPath) firstPath.setAttribute('fill','rgba(0,0,0,0)');
+        }
+      }catch(e){}
+    });
     // PISTA MELÓDICA: agrupar las cabezas de cada pulso juntas y equidistantes en un espacio
     // PISTA MELÓDICA: situar las cabezas ALREDEDOR del punto del cuadrado (centro del pulso).
     // Una sola -> justo en el centro; varias -> repartidas tomando el centro como eje, < mitad del pulso.
@@ -6235,25 +7092,41 @@ const DSgen = (function(){
         if(o.pistaMelodic){ if(!prevWasMel) grp++; (byPulse[grp]=byPulse[grp]||[]).push(o); prevWasMel=true; }
         else { prevWasMel=false; }
       });
-      // centro X: usar el pulso real al que corresponde cada grupo (el que el alumno pulsó = pistaMel)
       const groupKeys=Object.keys(byPulse);
+      if(window._MELDBG){ console.log('[MEL] measIdx',measIdx,'grupos melodicos:',groupKeys.length,'pistaMel=',pistaMel,'bpb=',bpb); }
       groupKeys.forEach((gk)=>{
         const arr=byPulse[gk]; const n=arr.length; if(!n) return;
-        // localizar el pulso dentro del compás: el índice del pulso revelado como melódico
+        // Centro objetivo = centro teórico del pulso (zona real de notas / pulsos).
         let pulInBar = (typeof pistaMel==='number') ? (pistaMel - measIdx*bpb) : 0;
         if(pulInBar<0 || pulInBar>=bpb) pulInBar=0;
-        const centerX=pulseCenterX(measIdx, pulInBar);
+        const centerX = pulseCenterX(measIdx, pulInBar);
         const pw=pulseSpanW(measIdx);
-        const span=Math.min(pw*0.42, 20*(n-1));
+        // Espacio total claramente menor que medio compás. Reparto uniforme con centro
+        // despejado para n par: posiciones en fracción (k+0.5)/n del espacio W.
+        const W=pw*0.35;
         arr.forEach((o,k)=>{
-          const targetX=(n===1)?centerX:(centerX - span/2 + span*k/(n-1));
-          let curX; try{curX=o.sn.getAbsoluteX();}catch(e){curX=targetX;}
-          const dx=targetX-curX;
-          const el=(o.sn.attrs&&o.sn.attrs.el)||(o.sn.getSVGElement&&o.sn.getSVGElement());
-          if(el&&Math.abs(dx)>0.5){ el.setAttribute('transform','translate('+dx.toFixed(1)+',0)'); }
+          const frac = (n===1) ? 0.5 : (k+0.5)/n;
+          const targetX = centerX - W/2 + frac*W;
+          // localizar el <g> de la nota: getSVGElement() es la vía fiable en VexFlow 4.2.3
+          // (sn.attrs.el no se rellena). Movemos el grupo entero por translate-X.
+          let grpEl=null;
+          try{ grpEl=o.sn.getSVGElement && o.sn.getSVGElement(); }catch(e){}
+          if(!grpEl && o.sn.attrs && o.sn.attrs.el) grpEl=o.sn.attrs.el;
+          if(!grpEl) return;
+          // posición actual de la cabeza: getAbsoluteX() es la X de la nota (estable y fiable,
+          // no afectada por transforms ni por bbox cacheado). Sumamos ~5px = medio ancho de
+          // cabeza para estimar su centro. (getBBox daría problemas en redibujados sucesivos.)
+          let curCenter;
+          try{ curCenter=o.sn.getAbsoluteX()+5; }catch(_){ curCenter=targetX; }
+          const dx=targetX-curCenter;
+          if(window._MELDBG){ console.log('  [MEL] nota k',k,'targetX',Math.round(targetX),'cur',Math.round(curCenter),'dx',Math.round(dx),'grpEl?',!!grpEl); }
+          if(isFinite(dx) && Math.abs(dx)>0.3){
+            const prev=grpEl.getAttribute('transform')||'';
+            grpEl.setAttribute('transform',(prev?prev+' ':'')+'translate('+dx.toFixed(1)+',0)');
+          }
         });
       });
-    }catch(e){}
+    }catch(e){ if(window._MELDBG){ console.log('[MEL] ERROR en reparto:', e && e.message); } }
 
     // registrar notas editables (solo cuando se ve el dictado completo y son notas reales con altura)
     if(fullRevealed){
@@ -6578,21 +7451,24 @@ const DSgen = (function(){
   }
   // centro X (en coords del SVG) de un pulso dentro de un compás. MISMA fórmula que el cuadrado rosa,
   // para que la pista revelada caiga exactamente donde estaba el cuadrado.
-  function pulseCenterX(measIdx, pulseInBar){
-    const r=barRects[measIdx]; if(!r) return 0;
+  // El "marco" de cada pulso se toma de la zona REAL donde van las notas del compás
+  // (noteStartX..noteEndX), dividida en partes iguales (bpb pulsos). Así el centro de cada
+  // mitad cae justo donde debe, sin depender de paddings inventados.
+  function pulseBoundsX(measIdx){
+    const r=barRects[measIdx]; if(!r) return null;
     const bpb=DICTADO.beatsPerBar;
-    const isFirst=(measIdx%4===0);
-    const padL=isFirst?64:8;
-    const usableW=Math.max(20, r.staveW - padL - 8);
-    const pw=usableW/bpb;
-    return r.staveX + padL + pulseInBar*pw + pw/2;
+    const x0=(r.noteStartX!=null)?r.noteStartX:(r.staveX+12);
+    const x1=(r.noteEndX!=null)?r.noteEndX:(r.staveX+r.staveW-6);
+    const W=Math.max(20, x1-x0);
+    return { x0, x1, pw:W/bpb, bpb };
+  }
+  function pulseCenterX(measIdx, pulseInBar){
+    const b=pulseBoundsX(measIdx); if(!b) return 0;
+    return b.x0 + pulseInBar*b.pw + b.pw/2;
   }
   function pulseSpanW(measIdx){
-    const r=barRects[measIdx]; if(!r) return 40;
-    const bpb=DICTADO.beatsPerBar;
-    const isFirst=(measIdx%4===0);
-    const padL=isFirst?64:8;
-    return (Math.max(20, r.staveW - padL - 8))/bpb;
+    const b=pulseBoundsX(measIdx); if(!b) return 40;
+    return b.pw;
   }
   function revealPulsePista(pulseIdx){
     if(!pistaPick) return;
@@ -6622,10 +7498,11 @@ const DSgen = (function(){
     const SQ=22; // cuadradito simbólico
     barRects.forEach((r,mi)=>{
       if(!r) return;
-      const isFirst = (mi%4===0);
-      const padL = isFirst? 64 : 8;
-      const usableW = Math.max(20, r.staveW - padL - 8);
-      const pw = usableW / bpb;
+      // usar la MISMA zona real de notas que pulseCenterX para que el punto clicable
+      // coincida con donde se dibujarán las cabezas
+      const x0=(r.noteStartX!=null)?r.noteStartX:(r.staveX+12);
+      const x1=(r.noteEndX!=null)?r.noteEndX:(r.staveX+r.staveW-6);
+      const pw = Math.max(20, x1-x0) / bpb;
       // centro vertical de las 5 líneas del pentagrama (VexFlow: ~40px de alto desde r.y)
       const midY = r.y + 20;
       for(let p=0;p<bpb;p++){
@@ -6634,7 +7511,7 @@ const DSgen = (function(){
         if(revealedPulses.has(gp)) continue;
         if(pistaPick==='rit' && pistaRit===gp) continue;
         if(pistaPick==='mel' && pistaMel===gp) continue;
-        const cx = r.staveX + padL + p*pw + pw/2;
+        const cx = x0 + p*pw + pw/2;
         const z=document.createElement('div');
         z.className='pistaPulse';
         z.style.left=(cx - SQ/2)+'px';
@@ -6667,7 +7544,7 @@ const DSgen = (function(){
     'C':'Do M','G':'Sol M','D':'Re M','F':'Fa M','Bb':'Si♭ M',
     'Am':'La m','Em':'Mi m','Bm':'Si m','Dm':'Re m','Gm':'Sol m'
   };
-  function shortKeyName(keyCode){ return SHORT_KEY[keyCode] || keyCode; }
+  function shortKeyName(keyCode){ return SHORT_KEY[keyCode] || (typeof GP_SHORT!=='undefined'&&GP_SHORT[keyCode]) || keyCode; }
   // nº de alteraciones de una armadura (+n sostenidos, -n bemoles, 0 ninguna)
   function keySigAlter(keySig){
     const NS={ 'C':0,'G':1,'D':2,'A':3,'E':4,'B':5,'F#':6 };
@@ -6696,6 +7573,18 @@ const DSgen = (function(){
   }
   function courseKeyList(){
     const cc = window.DS_COURSE_CFG;
+    // === GRADO PROFESIONAL: lista por rango de alteraciones (GP_KEYS) ===
+    if(cc && cc.isGP){
+      const lo=cc.minAcc!=null?cc.minAcc:0, hi=cc.maxAcc!=null?cc.maxAcc:4;
+      const list=GP_KEYS.filter(k=>{ const a=Math.abs(k.nAcc); return a>=lo && a<=hi; }).map(k=>k.key);
+      list.sort((a,b)=>{
+        const ka=GP_KEYS.find(k=>k.key===a), kb=GP_KEYS.find(k=>k.key===b);
+        if(ka.nAcc!==kb.nAcc) return kb.nAcc-ka.nAcc;
+        if(ka.mode!==kb.mode) return ka.mode==='major'?-1:1;
+        return 0;
+      });
+      return list;
+    }
     const keys = (cc && cc.keys && cc.keys.length) ? cc.keys : ['C'];
     const list = KEYS.filter(k=>keys.includes(k.key)).map(k=>k.key);
     // ordenar como círculo de quintas en la rueda:
@@ -6886,7 +7775,9 @@ const DSgen = (function(){
   function askRevealTs(){
     if(hintsBlocked){ showQuizResult(false, 'Las pistas están bloqueadas porque ya fallaste un quiz de tonalidad o compás. No puedes usar más pistas en este dictado.'); return; }
     resetTsModalUI();
-    const meters=['2/4','3/4','6/8'];
+    let meters=['2/4','3/4','6/8'];
+    const cc=window.DS_COURSE_CFG;
+    if(cc && cc.meters){ const m=Object.keys(cc.meters).filter(k=>cc.meters[k]); if(m.length) meters=m; }
     const tsItems=meters.map(m=>({value:m, label:m}));
     const cur=meters.indexOf(DICTADO.ts);
     _getTsVal=buildWheel('wheelTs', tsItems, 0);
@@ -6958,6 +7849,10 @@ const DSgen = (function(){
     if(_curso === 'ge2'){
       DICTADO = pickFromLibrary();
       if(!DICTADO){ alert('No hay dictados disponibles para este curso todavía. Vuelve pronto.'); return; }
+    } else if(_curso==='gp1' || _curso==='gp2'){
+      // Grado Profesional: generador a dos voces (la biblioteca GP aún no existe).
+      DICTADO = genReal();
+      if(!DICTADO){ alert('No se pudo generar el dictado de Grado Profesional.'); return; }
     } else {
       // Vista alumno: servir uno de la biblioteca (distinto al anterior). Si está vacía, usar el motor.
       DICTADO = pickFromLibrary() || genReal();
