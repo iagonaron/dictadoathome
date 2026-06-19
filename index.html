@@ -6619,7 +6619,7 @@ const DSgen = (function(){
     {id:'ref',  label:'Tonalidad', kind:'ref', max:2, color:'teal'},
     {id:'full1', label:'Completo', kind:'full', max:2, color:'blue'},
     {id:'fr1',  label:'1ª Frase', kind:'phrase', phrase:1, max:4, color:'amber'},
-    {id:'full2', label:'Completo', kind:'full', max:1, color:'blue'},
+    {id:'full2', label:'Completo', kind:'full', max:2, color:'blue'},
     {id:'fr2',  label:'2ª Frase', kind:'phrase', phrase:2, max:4, color:'coral'},
     {id:'full3', label:'Completo', kind:'full', max:2, color:'blue'},
   ];
@@ -7761,10 +7761,35 @@ const DSgen = (function(){
     const sy = (vb && vb.height) ? sr.height/vb.height : 1;
     const bpb=DICTADO.beatsPerBar;
     const SQ=20;
+    const PBp=(DICTADO.pulseFig==='qd')?1.5:1;
+    const _DBp={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75,'hd':3,'w':4};
+    // pulsos limpios de un compás de una voz (ninguna figura cruza el límite de pulso)
+    function cleanPulsesGP(measArr, measIdx){
+      const meas=measArr&&measArr[measIdx]; const clean=new Set();
+      if(!meas||!meas.notes) return clean;
+      const tdefs=meas._tuplets||[]; let acc=0; const segs=[];
+      meas.notes.forEach((n,qi)=>{
+        let db=(n.dur==='full')? bpb*PBp : (_DBp[(n.d||'').replace('r','')]||1);
+        tdefs.forEach(tp=>{ if(qi>=tp.start && qi<tp.start+(tp.def?tp.def.first:3)){ db=db*((tp.def?tp.def.notes:3)/(tp.def?tp.def.num:2)); } });
+        segs.push({startP:acc/PBp, endP:(acc+db)/PBp}); acc+=db;
+      });
+      for(let p=0;p<bpb;p++){
+        let ok=true;
+        for(const s of segs){
+          if(s.startP < p-1e-6 && s.endP > p+1e-6){ ok=false; break; }
+          if(s.startP >= p-1e-6 && s.startP < p+1-1e-6 && s.endP > p+1+1e-6){ ok=false; break; }
+        }
+        if(ok) clean.add(p);
+      }
+      return clean;
+    }
     (GP_BAR_RECTS||[]).forEach(r=>{
       const pw=(r.x1-r.x0)/bpb;
+      const measArr=(r.voice==='fa')?DICTADO.measuresFa:DICTADO.measures;
+      const clean=cleanPulsesGP(measArr, r.measIdx);
       for(let p=0;p<bpb;p++){
         const gp=r.measIdx*bpb+p;
+        if(!clean.has(p)) continue;                          // figura a caballo: no ofrecer
         if(revealedPulses.has(gp)) continue;                 // ya revelado del todo
         if(gpPista[r.voice].rit===gp || gpPista[r.voice].mel===gp) continue;  // pista ya puesta
         const cx=(r.x0 + p*pw + pw/2)*sx;
@@ -7837,6 +7862,39 @@ const DSgen = (function(){
     }
     const bpb=DICTADO.beatsPerBar;
     const SQ=22; // cuadradito simbólico
+    const PBp=(DICTADO.pulseFig==='qd')?1.5:1;
+    const _DBp={'q':1,'8':0.5,'16':0.25,'h':2,'qd':1.5,'8d':0.75,'hd':3,'w':4};
+    // Conjunto de pulsos "limpios" de un compás: aquellos en los que NINGUNA figura cruza
+    // el límite de pulso (ni una figura larga que abarca >1 pulso, ni una a caballo entre dos).
+    // Solo en esos pulsos la pista rítmica revela algo correcto.
+    function cleanPulses(measIdx){
+      const meas=DICTADO.measures[measIdx];
+      const clean=new Set();
+      if(!meas||!meas.notes) return clean;
+      const tdefs=meas._tuplets||[];
+      let acc=0;
+      const segs=[];  // {startP, endP} en pulsos
+      meas.notes.forEach((n,qi)=>{
+        let db=(n.dur==='full')? bpb*PBp : (_DBp[(n.d||'').replace('r','')]||1);
+        tdefs.forEach(tp=>{ if(qi>=tp.start && qi<tp.start+(tp.def?tp.def.first:3)){ db=db*((tp.def?tp.def.notes:3)/(tp.def?tp.def.num:2)); } });
+        const startP=acc/PBp, endP=(acc+db)/PBp;
+        segs.push({startP, endP});
+        acc+=db;
+      });
+      // un pulso p es limpio si: ninguna figura empieza antes de p y termina dentro/después cruzando p,
+      // y ninguna figura que empieza en p termina pasado p+1.
+      for(let p=0;p<bpb;p++){
+        let ok=true;
+        for(const s of segs){
+          // figura que cruza el inicio del pulso (empieza antes y termina después de p)
+          if(s.startP < p-1e-6 && s.endP > p+1e-6){ ok=false; break; }
+          // figura que empieza en este pulso pero se extiende más allá del pulso siguiente
+          if(s.startP >= p-1e-6 && s.startP < p+1-1e-6 && s.endP > p+1+1e-6){ ok=false; break; }
+        }
+        if(ok) clean.add(p);
+      }
+      return clean;
+    }
     barRects.forEach((r,mi)=>{
       if(!r) return;
       // usar la MISMA zona real de notas que pulseCenterX para que el punto clicable
@@ -7846,8 +7904,11 @@ const DSgen = (function(){
       const pw = Math.max(20, x1-x0) / bpb;
       // centro vertical de las 5 líneas del pentagrama (VexFlow: ~40px de alto desde r.y)
       const midY = r.y + 20;
+      const clean=cleanPulses(mi);
       for(let p=0;p<bpb;p++){
         const gp = mi*bpb + p;
+        // no ofrecer pulsos donde una figura cruza el límite (la pista saldría incorrecta)
+        if(!clean.has(p)) continue;
         // no ofrecer pulsos ya revelados del todo
         if(revealedPulses.has(gp)) continue;
         if(pistaPick==='rit' && pistaRit===gp) continue;
