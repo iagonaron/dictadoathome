@@ -760,10 +760,10 @@
     <div class="gen-controls" id="genControls">
       <div class="tempo-ctl">
         <span class="tempo-lbl">Tempo</span>
-        <button class="tempo-btn" onclick="DSgen.bumpBpm(-5)" title="Más lento">−</button>
-        <span class="tempo-val" id="bpmOut">55</span>
-        <button class="tempo-btn" onclick="DSgen.bumpBpm(5)" title="Más rápido">+</button>
-        <input type="hidden" id="bpmSlider" value="55">
+        <button class="tempo-btn" onclick="DSgen.bumpBpm(-1)" title="Más lento">−</button>
+        <span class="tempo-val" id="bpmOut">50</span>
+        <button class="tempo-btn" onclick="DSgen.bumpBpm(1)" title="Más rápido">+</button>
+        <input type="hidden" id="bpmSlider" value="50">
       </div>
     </div>
 
@@ -4977,6 +4977,8 @@ var DSedit = (function(){
   }
   async function doRegisterNew(){
     const D=DSgen.getDictado();
+    // guardar el tempo actual con el dictado (para que al cargarlo salga a ese tempo)
+    try{ if(D && window.DSgen && DSgen.currentBpm) D.bpm=DSgen.currentBpm(); }catch(e){}
     const curso = window.DS_ACTIVE_COURSE || '(sin curso)';
     const fecha = new Date().toISOString().slice(0,10);
     showBanner('Registrando…', 'wait');
@@ -6807,14 +6809,16 @@ const DSaudio = (function(){
 const DSgen = (function(){
   let userBpmNegra=null, userBpmPunt=null; // override del usuario
   function isPunt(){ return !!(DICTADO && DICTADO.pulseFig==='qd'); }
-  function defaultBpm(){ return isPunt() ? 45 : 55; }
+  function defaultBpm(){ return isPunt() ? 40 : 50; }
   function bpm(){
-    if(isPunt()) return userBpmPunt!=null?userBpmPunt:45;
-    return userBpmNegra!=null?userBpmNegra:55;
+    if(isPunt()) return userBpmPunt!=null?userBpmPunt:40;   // 6/8, 9/8 -> negra con puntillo a 40
+    return userBpmNegra!=null?userBpmNegra:50;              // 2/4, 3/4 -> negra a 50
   }
   function setBpm(v){
     v=Math.max(30, Math.min(120, parseInt(v,10)||defaultBpm()));
     if(isPunt()) userBpmPunt=v; else userBpmNegra=v;
+    // guardar el tempo en el propio dictado para que se registre y se restaure al cargarlo
+    if(DICTADO){ DICTADO.bpm=v; }
     redraw();
     const out=document.getElementById('bpmOut'); if(out) out.textContent=v;
   }
@@ -6830,6 +6834,13 @@ const DSgen = (function(){
   let gpPista={ sol:{rit:null, mel:null}, fa:{rit:null, mel:null} };
   let gpPistaPick=null;   // 'rit' | 'mel' | null : tipo de pista que se está colocando en GP
   function resetGpPista(){ gpPista={ sol:{rit:null, mel:null}, fa:{rit:null, mel:null} }; gpPistaPick=null; }
+  // aplica el tempo guardado en el dictado (si lo tiene) al override correcto; si no, usa el de por defecto
+  function applyDictadoBpm(){
+    userBpmNegra=null; userBpmPunt=null;   // partir de los valores por defecto
+    if(DICTADO && DICTADO.bpm!=null){
+      if(isPunt()) userBpmPunt=DICTADO.bpm; else userBpmNegra=DICTADO.bpm;
+    }
+  }
   let fullRevealed=false;
   let playing=false;
   let timers=[];
@@ -8542,7 +8553,7 @@ const DSgen = (function(){
       // Vista alumno: servir uno de la biblioteca (distinto al anterior). Si está vacía, usar el motor.
       DICTADO = pickFromLibrary() || genReal();
     }
-    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); keyRevealed=false; tsRevealed=false;
+    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=false; tsRevealed=false;
     hintsBlocked=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
@@ -8575,7 +8586,7 @@ const DSgen = (function(){
   function clearDictado(){
     if(playing) stopPlayback();
     DICTADO=null;
-    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); keyRevealed=false; tsRevealed=false;
+    revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=false; tsRevealed=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
     SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
@@ -8587,7 +8598,7 @@ const DSgen = (function(){
     setBpm(cur+delta);
   }
 
-  return { redraw, renderSeq, onSeq, pistaMode, solucion, closeSolModal, revealSolucion, newDictado, clearDictado, askRevealKey, confirmRevealKey, acceptRevealKey, cancelRevealKey, askRevealTs, confirmRevealTs, acceptRevealTs, cancelRevealTs, closeQuizResult, updateHintButtonsForCourse, stopPlayback, setBpm, bumpBpm,
+  return { redraw, renderSeq, onSeq, pistaMode, solucion, closeSolModal, revealSolucion, newDictado, clearDictado, askRevealKey, confirmRevealKey, acceptRevealKey, cancelRevealKey, askRevealTs, confirmRevealTs, acceptRevealTs, cancelRevealTs, closeQuizResult, updateHintButtonsForCourse, stopPlayback, setBpm, bumpBpm, currentBpm:bpm,
     // helpers para el mini-editor
     revealAll(){ fullRevealed=true; keyRevealed=true; tsRevealed=true; redraw(); },
     playOne(midi){ try{ stopPlayback(); }catch(e){} try{ const t=DSaudio.ctx().currentTime+0.03; playNote(midi, t, 0.7, false); }catch(e){} },
@@ -8794,7 +8805,7 @@ const DSgen = (function(){
     genFromMotor(){
       if(playing) stopPlayback();
       DICTADO=genReal();  // genReal ya incluye el 30% de bass clef para ge3/ge4
-      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); keyRevealed=true; tsRevealed=true;
+      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=true; tsRevealed=true;
       disablePistaPicking();
       const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
       SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
@@ -8806,7 +8817,7 @@ const DSgen = (function(){
       if(playing) stopPlayback();
       // clonar para no mutar la biblioteca hasta que se registre de nuevo
       DICTADO = JSON.parse(JSON.stringify(dictadoObj));
-      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); keyRevealed=true; tsRevealed=true;
+      revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=true; tsRevealed=true;
       disablePistaPicking();
       const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
       SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
