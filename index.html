@@ -9211,12 +9211,29 @@ const DSval = (function(){
       if(g) g.style.display='none';
       if(Date.now()-t0<8000) setTimeout(vigila, 300);
     })();
-    // entrar al editor sin contraseña (modo clase) con dictado de partida
+    // entrar al editor sin contraseña (modo clase). Si ya hay un dictado
+    // guardado para esta semana (p. ej. importado por XML desde el Diario),
+    // se carga ESE en el editor; si no, uno aleatorio de partida.
     setTimeout(function(){
-      try{
-        DSedit.enter();
-        if(!DSgen.getDictado() && DSedit.rollNew) DSedit.rollNew();
-      }catch(e){ console.warn('[paraClase] no pude abrir el editor:', e); }
+      try{ DSedit.enter(); }
+      catch(e){ console.warn('[paraClase] no pude abrir el editor:', e); return; }
+      fetch(SB_URL+'/rest/v1/suite_dictados_clase?select=dictado'+
+            '&curso=eq.'+encodeURIComponent(cursoDiario)+
+            '&anio=eq.'+anio+'&semana_iso=eq.'+semana, { headers:_hdr() })
+        .then(function(r){ return r.ok ? r.json() : []; })
+        .then(function(rows){
+          var d = rows && rows[0] && rows[0].dictado;
+          try{
+            if(d && DSgen.loadDictadoForEdit){
+              DSgen.loadDictadoForEdit(d);
+              if(DSedit.setMode) DSedit.setMode('alturas');
+              estado('Dictado de la semana cargado en el editor', '#bbf7d0');
+            } else if(!DSgen.getDictado() && DSedit.rollNew){
+              DSedit.rollNew();
+            }
+          }catch(e){ console.warn('[paraClase] carga inicial:', e); }
+        })
+        .catch(function(){ try{ if(!DSgen.getDictado() && DSedit.rollNew) DSedit.rollNew(); }catch(e){} });
     }, 600);
   }
 
