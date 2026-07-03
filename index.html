@@ -9315,8 +9315,11 @@ const DSval = (function(){
       estado('Generando solución…');
       var dataURL=await solucionJPG();
       var blob=dataURLtoBlobPC(dataURL);
-      var fname='dictado_n'+numero+'_'+cursoDiario+'_s'+semana+'_'+anio+'.jpg';
-      var path='dictados-clase/'+anio+'/'+cursoDiario+'/'+fname;
+      var fname='dictado_animado_n'+numero+'_'+cursoDiario+'_s'+semana+'_'+anio+'.jpg';
+      // prefijo 'semanas/' = el mismo que usa el Diario para sus subidas
+      // (las políticas del bucket están limitadas por prefijo; 'dictados-clase/'
+      // se subía pero no se podía leer ni firmar: ese era el bug de la imagen)
+      var path='semanas/'+cursoDiario+'/'+anio+'-s'+semana+'/'+fname;
       estado('Subiendo solución…');
       var up=await fetch(SB_URL+'/storage/v1/object/diario/'+path, {
         method:'POST',
