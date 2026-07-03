@@ -9128,7 +9128,7 @@ const DSval = (function(){
 
 <script>
 /* ============================================================
-   SUITE AT HOME · DICTADO ANIMADO · FASE B · r1 (paraClase)
+   SUITE AT HOME · DICTADO ANIMADO · FASE B · r2 (paraClase)
    ------------------------------------------------------------
    Se activa SOLO al llegar desde el Diario del Profesor con
      ?paraClase=1&curso=3Ge&anio=2026&semana=27&numero=6
@@ -9190,18 +9190,34 @@ const DSval = (function(){
     if(estadoEl){ estadoEl.textContent=msg||''; estadoEl.style.color=color||'#fff'; }
   }
 
-  /* ---- autoseleccionar el curso equivalente -------------------------- */
+  /* ---- arranque directo en modo clase --------------------------------
+     Sin fricción: selecciona el curso equivalente, cierra el portal de
+     cursos (aunque se abra tarde) y entra DIRECTO al editor sin pedir
+     contraseña, con un dictado aleatorio de partida listo para editar. */
   var triesAuto=0;
   function autoCurso(){
+    var listo = window.DS && DS.courses && DS.courses.setActiveCourse &&
+                window.DSedit && window.DSgen;
+    if(!listo){ if(++triesAuto<80) setTimeout(autoCurso, 250); return; }
     try{
-      if(window.DS && DS.courses && DS.courses.setActiveCourse){
-        DS.courses.setActiveCourse(cursoApp);
-        try{ DS.courses.buildFloating(); }catch(e){}
-        try{ DS.courses.closeGate(); }catch(e){}
-        return;
-      }
+      DS.courses.setActiveCourse(cursoApp);
+      try{ DS.courses.buildFloating(); }catch(e){}
     }catch(e){}
-    if(++triesAuto<40) setTimeout(autoCurso, 250);
+    // el gate puede abrirse después del init: vigilarlo unos segundos
+    var t0=Date.now();
+    (function vigila(){
+      try{ DS.courses.closeGate(); }catch(e){}
+      var g=document.getElementById('courseGate');
+      if(g) g.style.display='none';
+      if(Date.now()-t0<8000) setTimeout(vigila, 300);
+    })();
+    // entrar al editor sin contraseña (modo clase) con dictado de partida
+    setTimeout(function(){
+      try{
+        DSedit.enter();
+        if(!DSgen.getDictado() && DSedit.rollNew) DSedit.rollNew();
+      }catch(e){ console.warn('[paraClase] no pude abrir el editor:', e); }
+    }, 600);
   }
 
   /* ---- botón en la barra de Edición ---------------------------------- */
