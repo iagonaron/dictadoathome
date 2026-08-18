@@ -527,17 +527,12 @@
   .course-gate-sub{ font-size:14px; color:var(--muted); margin-bottom:22px; line-height:1.6; max-width:640px; margin-left:auto; margin-right:auto; }
   .course-gate-sub strong{ color:var(--ink); }
   .course-gate-sub .gate-note{ font-size:12.5px; opacity:.75; font-style:italic; }
-  .course-gate-list{ display:grid; grid-template-columns:repeat(6,1fr); gap:12px; align-items:stretch; }
+  .course-gate-list{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; align-items:stretch; }
   .course-gate-list .course-opt{ flex-direction:column; align-items:center; justify-content:center; gap:8px;
     aspect-ratio:1/1; padding:14px; text-align:center; border-radius:16px;
     background:linear-gradient(180deg,var(--panel2),var(--panel)); }
   .course-gate-list .course-opt-l{ font-size:14px; font-weight:800; line-height:1.25; }
-  /* separador sutil entre Grado Elemental (4 primeros) y Grado Profesional (2 últimos) */
-  .course-gate-list .course-opt:nth-child(4){ position:relative; }
-  .course-gate-list .course-opt:nth-child(4)::after{ content:''; position:absolute; right:-7px; top:8%; height:84%; width:1px;
-    background:linear-gradient(180deg,transparent,var(--line),transparent); }
-  @media(max-width:760px){ .course-gate-list{ grid-template-columns:repeat(3,1fr); }
-    .course-gate-list .course-opt:nth-child(4)::after{ display:none; } }
+  @media(max-width:760px){ .course-gate-list{ grid-template-columns:repeat(2,1fr); } }
 
   /* botón guardar */
   .save-row{ margin:34px 0 8px; padding-top:20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; }
@@ -873,7 +868,7 @@
   <div id="courseGate" class="course-gate">
     <div class="course-gate-box">
       <div class="course-gate-t">¿Para qué curso?</div>
-      <div class="course-gate-sub">El nivel aproximado corresponde al <strong>final</strong> de cada uno de estos cursos. La dificultad es solo una referencia: esta aplicación es un complemento al trabajo realizado en clase.<br><br>Siéntete libre de elegir el curso en el que te sientas más cómodo haciendo el ejercicio, y de cambiarlo cuando quieras.<br><br><span class="gate-note">Los cursos en fase de pruebas requieren contraseña.</span></div>
+      <div class="course-gate-sub">El nivel aproximado corresponde al <strong>final</strong> de cada uno de estos cursos. La dificultad es solo una referencia: esta aplicación es un complemento al trabajo realizado en clase.<br><br>Siéntete libre de elegir el curso en el que te sientas más cómodo haciendo el ejercicio, y de cambiarlo cuando quieras.</div>
       <div id="courseGateList" class="course-gate-list"></div>
     </div>
   </div>
@@ -4303,9 +4298,12 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
   ];
   // En el GATE de entrada, cursos elegibles (configurados).
   const GATE_AVAILABLE = ['ge3','ge4'];
-  const GATE_BETA = ['ge1','ge2','gp1','gp2'];   // cursos con acceso por contraseña
-  // En EDICIÓN (Configuración): navegables todos los cursos.
-  const EDIT_AVAILABLE = ['ge1','ge2','ge3','ge4','gp1','gp2'];
+  const GATE_BETA = [];   // sin acceso por contraseña: el resto queda bloqueado
+  // Cursos que NO se muestran en este portal (Grado Elemental).
+  // El Grado Profesional se trabaja únicamente desde el portal LMPRO.
+  const HIDDEN_COURSES = ['gp1','gp2'];
+  // En EDICIÓN (Configuración): navegables los cursos de Grado Elemental.
+  const EDIT_AVAILABLE = ['ge1','ge2','ge3','ge4'];
 
   let activeCourse = null;   // curso con el que se GENERAN dictados (se fija en el gate)
   let editingCourse = null;  // curso que se está mirando/configurando en Edición
@@ -4532,6 +4530,7 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     const host=document.getElementById('courseGateList'); if(!host) return;
     host.innerHTML='';
     COURSES.forEach(c=>{
+      if(HIDDEN_COURSES.includes(c.id)) return;   // Grado Profesional: no se muestra en este portal
       const avail = GATE_AVAILABLE.includes(c.id) && !c.locked;
       const beta  = GATE_BETA.includes(c.id) && !c.locked;
       const b=document.createElement('button');
@@ -4554,6 +4553,7 @@ window.DS.melodyLaws = { MEL_LAWS:(typeof MEL_LAWS!=='undefined'?MEL_LAWS:[]), M
     const list=document.getElementById('courseFloatList'); if(!list) return;
     list.innerHTML='';
     COURSES.forEach(c=>{
+      if(HIDDEN_COURSES.includes(c.id)) return;   // Grado Profesional: no se muestra en este portal
       const avail = EDIT_AVAILABLE.includes(c.id) && !c.locked;
       const b=document.createElement('button');
       b.className='course-opt'+(avail?'':' locked')+(c.id===editingCourse?' on':'');
