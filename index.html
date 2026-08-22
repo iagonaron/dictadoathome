@@ -7874,11 +7874,14 @@ const DSgen = (function(){
   }
 
   /* La → Tónica: La de referencia, SILENCIO, luego la tónica */
+  // (Iago ago-2026 · clave de FA) En dictados en clave de fa la referencia es
+  // La3 (57), no La4: queda dentro de la tesitura Sol2–Do4 del dictado.
   function playTonicRef(){
     DSaudio.ensurePiano().then(()=>{
       const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
       const t=ac.currentTime+0.1;
-      playNote(69, t, 0.9, false);               // La4 de referencia
+      const refLa=(DICTADO && DICTADO.clef==='bass') ? 57 : 69;  // La3 en clave de fa · La4 en clave de sol
+      playNote(refLa, t, 0.9, false);            // La de referencia
       playNote(DICTADO.tonicMidi, t+1.6, 1.0, false); // tónica, tras un silencio claro
     });
   }
@@ -7886,7 +7889,11 @@ const DSgen = (function(){
   // y esa tónica en la MISMA octava que la tónica sola de referencia (t). El resto del acorde, debajo.
   // En Fa mayor (grave→agudo): La3–Do4–Fa4 | Sib3–Re4–Fa4 | Sol3–Do4–Mi4 | La3–Do4–Fa4.
   function chordVoicings(){
-    const t=DICTADO.tonicMidi, minor=DICTADO.mode==='minor', third=minor?3:4;
+    // (Iago ago-2026 · clave de FA) Los ACORDES de referencia suenan siempre en la
+    // tesitura de clave de sol: si el dictado es en clave de fa (tónica grave),
+    // se sube la tónica una octava para construir las tríadas, adaptadas ya a la
+    // tonalidad del dictado. La melodía sigue sonando en su registro grave.
+    const t=DICTADO.tonicMidi + ((DICTADO.clef==='bass') ? 12 : 0), minor=DICTADO.mode==='minor', third=minor?3:4;
     const top=t;        // tónica del acorde = misma octava que la tónica sola
     const sens=t-1;     // sensible, justo bajo la tónica (soprano del V)
     return [
