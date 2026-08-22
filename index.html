@@ -9465,6 +9465,43 @@ const DSval = (function(){
       } else {
         estado('✓ Dictado nº '+numero+' cargado · vuelve al Diario', '#bbf7d0');
       }
+
+      // 4) SOBRESCRIBIR EN LA BIBLIOTECA (Iago ago-2026) · si este nº existe
+      //    en la biblioteca del curso (dictados_xml/<curso>/manifest.json) se
+      //    ofrece guardar ahí la versión editada: Aceptar deja el cambio fijo
+      //    para siempre (biblioteca); Cancelar lo aplica solo a esta semana.
+      try{
+        if(/Ge$/i.test(cursoDiario) && isFinite(numero)){
+          var mUrl=SB_URL+'/storage/v1/object/public/diario/dictados_xml/'+
+                   encodeURIComponent(cursoDiario)+'/manifest.json?t='+Date.now();
+          var mr=await fetch(mUrl,{cache:'no-store'});
+          if(mr.ok){
+            var man=await mr.json();
+            var idx=(man&&Array.isArray(man.dictados))?man.dictados.findIndex(function(x){return +x.n===+numero;}):-1;
+            if(idx>=0 && window.confirm('¿Sobrescribir también el dictado nº '+numero+' de la BIBLIOTECA de '+cursoDiario+
+                 ' con esta versión editada?\n\nAceptar: la biblioteca queda actualizada para siempre.\n'+
+                 'Cancelar: el cambio vale solo para esta semana.')){
+              var e0=man.dictados[idx];
+              e0.dictado=D; e0.name=D.name||e0.name; e0.ts=D.ts||e0.ts;
+              e0.compases=(D.measures&&D.measures.length)||e0.compases;
+              man.actualizado=new Date().toISOString();
+              estado('Actualizando biblioteca…');
+              var mu=await fetch(SB_URL+'/storage/v1/object/diario/dictados_xml/'+
+                       encodeURIComponent(cursoDiario)+'/manifest.json', {
+                method:'POST',
+                headers:_hdr({ 'Content-Type':'application/json', 'x-upsert':'true' }),
+                body: JSON.stringify(man)
+              });
+              if(mu.ok){
+                estado('✓ Dictado nº '+numero+' cargado · biblioteca actualizada', '#bbf7d0');
+                try{ if(window.opener && window.opener.DictadoBiblioteca) window.opener.DictadoBiblioteca.recargarGE(); }catch(eR){}
+              } else {
+                estado('✓ Cargado · la biblioteca NO se pudo actualizar (HTTP '+mu.status+')', '#fde68a');
+              }
+            }
+          }
+        }
+      }catch(eB){ console.warn('[paraClase] biblioteca', eB); }
     }catch(e){
       console.warn('[paraClase]', e);
       estado('✗ '+((e&&e.message)||e), '#fecaca');
