@@ -10133,11 +10133,14 @@ window.DictadoVideo = (function(){
       var sn=new VF.StaveNote({clef:clef, keys:[n.k], duration:'q'});
       try{ sn.setStemStyle({fillStyle:'rgba(0,0,0,0)', strokeStyle:'rgba(0,0,0,0)'}); }catch(e){}
       var accChar=(''+n.k).split('/')[0].slice(1);
-      if(accChar==='#'||accChar==='b'||accChar==='n'||accChar==='##'||accChar==='bb'){
-        try{ sn.addModifier(new VF.Accidental(accChar),0); }catch(e){}
-      }
       var v=new VF.Voice({num_beats:1, beat_value:4}).setMode(VF.Voice.Mode.SOFT);
       v.addTickables([sn]);
+      /* (13-oct-2026, Iago) con la armadura a la vista, la alteración solo si hace falta (el si bemol de fa mayor, no) */
+      var conAlt=true;
+      if(conArmadura){ try{ VF.Accidental.applyAccidentals([v], D.keySig||(''+D.key).replace(/m$/,'')); conAlt=false; }catch(e){} }
+      if(conAlt && (accChar==='#'||accChar==='b'||accChar==='n'||accChar==='##'||accChar==='bb')){
+        try{ sn.addModifier(new VF.Accidental(accChar),0); }catch(e){}
+      }
       new VF.Formatter().joinVoices([v]).format([v], 44);
       sn.setStave(stave);
       v.draw(vctx, stave);
@@ -10258,10 +10261,11 @@ window.DictadoVideo = (function(){
           sn=new VF.StaveNote({clef:clef, keys:[restKey], duration:durVF+'r'});
         } else {
           sn=new VF.StaveNote({clef:clef, keys:[n.k], duration:durVF});
+          /* (13-oct-2026, Iago) «al corregir el dictado 5 salían TODOS los si bemol con su ♭, y ya está en la armadura».
+             Antes cada nota alterada llevaba siempre su alteración; ahora las pone VexFlow mirando la armadura y lo que
+             ya va en el compás (applyAccidentals, al montar la voz), como en el dictado de una voz. Si eso fallara, se
+             ponen como antes (o.acc). */
           var acc=(''+n.k).split('/')[0].slice(1);
-          if(acc==='#'||acc==='b'||acc==='n'||acc==='##'||acc==='bb'){
-            try{ sn.addModifier(new VF.Accidental(acc),0); }catch(e){}
-          }
         }
         if(conP){ try{ VF.Dot.buildAndAttach([sn],{all:true}); }catch(e){} }
         if(n.rest || !n.k){ tiePrevGP[clef]=null; }
@@ -10269,7 +10273,7 @@ window.DictadoVideo = (function(){
           if(n.lig && tiePrevGP[clef] && tiePrevGP[clef].L===_LActualGP) tiesGP.push({a:tiePrevGP[clef].sn, b:sn});
           tiePrevGP[clef]={sn:sn, L:_LActualGP};
         }
-        return { sn:sn, d:(n.d||'q'), rest:(n.rest||!n.k) };
+        return { sn:sn, d:(n.d||'q'), rest:(n.rest||!n.k), acc:(n.rest||!n.k)?'':acc };
       });
     }
     for(var L=0;L<sistemas;L++){
@@ -10308,6 +10312,8 @@ window.DictadoVideo = (function(){
           var sns=pares.map(function(o){return o.sn;});
           var v=new VF.Voice({num_beats:num, beat_value:den}).setMode(VF.Voice.Mode.SOFT);
           v.addTickables(sns);
+          try{ VF.Accidental.applyAccidentals([v], keySpec); }   /* (13-oct-2026) las alteraciones, según la armadura */
+          catch(e){ pares.forEach(function(o){ if(/^(#|b|n|##|bb)$/.test(o.acc||'')){ try{ o.sn.addModifier(new VF.Accidental(o.acc),0); }catch(x){} } }); }
           var bs=beamsPorPulso(pares, num, den, clef);   // fija plicas + crea beams (antes de draw)
           voces.push(v);
           datos.push({stave:stave, voice:v, beams:bs});
