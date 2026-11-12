@@ -420,6 +420,10 @@ if(window.Sentry && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
     transition:border-color .15s,box-shadow .15s,transform .12s; }
   .listen-card:hover{ border-color:var(--accent); transform:translateY(-3px); box-shadow:0 16px 40px rgba(20,40,120,.4); }
   .listen-card.spent{ opacity:.45; }
+  /* (12-nov-2026) escuchas en orden y con espera */
+  .listen-card.lc-luego{ opacity:.45; }
+  .listen-card.lc-esperando .lc-play{ opacity:.35; cursor:default; }
+  .lc-espera{ position:absolute; left:6px; right:6px; bottom:-22px; text-align:center; font-size:11px; font-weight:700; color:var(--accent); white-space:nowrap; }
   .listen-card.spent:hover{ transform:none; box-shadow:none; border-color:var(--line); }
   .listen-card.playing{ border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft); }
   .lc-num{ position:absolute; top:8px; left:8px; width:20px; height:20px; border-radius:50%;
@@ -722,7 +726,7 @@ if(window.Sentry && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
     <div class="appname-top">
       <h2 class="appname-link" onclick="window.DS_openGate&&window.DS_openGate()" title="Volver a elegir curso"><span class="pre">DICT</span><span class="post">ADO</span> <span class="home2">at home</span></h2>
     </div>
-    <p class="hybrid-note" id="hybridNote"><span class="hn-line">Haz el dictado como si estuvieras en clase: coge tu libreta de pentagramas, lápiz y goma, y sigue los audios por orden.</span><span class="hn-line">Si lo necesitas, podrás usar algunas pequeñas ayudas: <span class="pistas-word">pistas</span>.</span></p>
+    <p class="hybrid-note" id="hybridNote"><span class="hn-line">Haz el dictado como si estuvieras en clase: coge tu libreta de pentagramas, lápiz y goma, y sigue los audios por orden: entre una escucha y la siguiente tendrás unos segundos para escribir.</span><span class="hn-line">Si lo necesitas, podrás usar algunas pequeñas ayudas: <span class="pistas-word">pistas</span>.</span></p>
   </div>
 
   <!-- ===== VISTA GENERADOR ===== -->
@@ -781,7 +785,7 @@ if(window.Sentry && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
     </div>
 
     <!-- TARJETAS: escucha + acciones, TODO en una sola fila -->
-    <p class="cards-title">Escucha y trabaja <span class="cards-hint">— sigue el orden: al pasar a una tarjeta, las anteriores se bloquean</span></p>
+    <p class="cards-title">Escucha y trabaja <span class="cards-hint">— sigue el orden: haz todas las escuchas, una detrás de otra</span></p>
     <div class="cards-row" id="cardsRow">
       <div id="seqList" class="cards-grid"></div>
       <div class="cards-spacer"></div>
@@ -6965,6 +6969,29 @@ const DSgen = (function(){
     return null;
   }
   let used={}; let advancedPast=0;
+  /* (12-nov-2026, Iago) «que haya que consumir todas las repeticiones con un mínimo de 20 segundos entre repeticiones,
+     exceptuando el La, los acordes y tal del principio, porque ahí que sean 5 segundos… que ya no se pueda saltar pasos».
+     Las escuchas van en orden (solo se puede pulsar la primera tarjeta que aún tiene escuchas) y, al acabar una,
+     hay que esperar ESPERA_MS antes de la siguiente; la solución sale cuando están todas. En modo edición, sin esperas.
+     Para quitarlo: ESPERA_ACTIVA=false. */
+  const ESPERA_ACTIVA=true, ESPERA_MS=20000, ESPERA_REF_MS=5000;
+  let esperaHasta=0, esperaTick=null;
+  function enEdicion(){ try{ const e=document.getElementById('editBar'); return !!(e && e.style.display!=='none'); }catch(x){ return false; } }
+  function controlEspera(){ return ESPERA_ACTIVA && !enEdicion(); }
+  function siguienteEscucha(){ for(let j=0;j<SEQ.length;j++){ if(used[SEQ[j].id]<seqMax(SEQ[j])) return j; } return -1; }
+  function quedaEspera(){ return controlEspera() ? Math.max(0, esperaHasta-Date.now()) : 0; }
+  function arrancaEspera(idx){
+    if(idx==null || !SEQ[idx]) return;
+    esperaHasta=Date.now()+(SEQ[idx].kind==='ref'?ESPERA_REF_MS:ESPERA_MS);
+    if(esperaTick) clearInterval(esperaTick);
+    esperaTick=setInterval(()=>{
+      if(playing) return;
+      const host=document.getElementById('seqList'), lab=host&&host.querySelector('.lc-espera');
+      const q=quedaEspera();
+      if(q<=0){ clearInterval(esperaTick); esperaTick=null; renderSeq(); return; }
+      if(lab) lab.textContent='Escribe · '+Math.ceil(q/1000)+' s';
+    }, 250);
+  }
   SEQ.forEach(s=>used[s.id]=0);
 
   function totalPulses(){ return DICTADO.measures.length*DICTADO.beatsPerBar; }
@@ -7873,7 +7900,7 @@ const DSgen = (function(){
   }
   function finishPlayback(seqIdx){
     playing=false; currentPlayingIdx=null; highlightBar(null);
-    if(seqIdx!=null){ markDotDone(seqIdx); setCardPlaying(seqIdx,false); }
+    if(seqIdx!=null){ markDotDone(seqIdx); setCardPlaying(seqIdx,false); arrancaEspera(seqIdx); }
     if(beatBlinkTimer){ clearInterval(beatBlinkTimer); beatBlinkTimer=null; }
     clearCountdown();
     renderSeq();
@@ -7886,7 +7913,7 @@ const DSgen = (function(){
     document.getElementById('countInOverlay').style.display='none';
     const idx=currentPlayingIdx;
     playing=false; currentPlayingIdx=null; highlightBar(null);
-    if(idx!=null){ markDotDone(idx); setCardPlaying(idx,false); }
+    if(idx!=null){ markDotDone(idx); setCardPlaying(idx,false); arrancaEspera(idx); }
     if(beatBlinkTimer){ clearInterval(beatBlinkTimer); beatBlinkTimer=null; }
     renderSeq();
   }
@@ -7956,7 +7983,16 @@ const DSgen = (function(){
       play.innerHTML = isPlaying
         ? '<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14"></rect><rect x="14" y="5" width="4" height="14"></rect></svg>'
         : '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
-      const disabled=(spent||burned)&&!isPlaying;
+      let disabled=(spent||burned)&&!isPlaying;
+      if(controlEspera() && !isPlaying && !spent){
+        const sig=siguienteEscucha();
+        if(idx!==sig || playing){ disabled=true; card.classList.add('lc-luego'); }
+        else if(quedaEspera()>0){
+          disabled=true; card.classList.add('lc-esperando');
+          const lab=document.createElement('div'); lab.className='lc-espera';
+          lab.textContent='Escribe · '+Math.ceil(quedaEspera()/1000)+' s'; card.appendChild(lab);
+        }
+      }
       if(disabled){ play.disabled=true; }
       play.onclick=()=>onSeq(idx);
       // contador de escuchas (puntos)
@@ -8057,6 +8093,7 @@ const DSgen = (function(){
     if(playing){ stopPlayback(); }
     const s=SEQ[idx];
     if(used[s.id]>=seqMax(s) || idx<advancedPast) return;
+    if(controlEspera() && (idx!==siguienteEscucha() || quedaEspera()>0)) return;   /* (12-nov-2026) en orden y con espera */
     if(idx>advancedPast) advancedPast=idx;
     const useIdx=used[s.id];   // 0-based: qué repetición es esta (antes de incrementar)
     used[s.id]++;
@@ -8629,7 +8666,17 @@ const DSgen = (function(){
     });
   }
 
-  function solucion(){ document.getElementById('solModal').classList.add('show'); }
+  function solucion(){
+    const m=document.getElementById('solModal');
+    const t=m.querySelector('.modal-t'), p=m.querySelector('p'), ok=m.querySelector('.primary'), vu=m.querySelector('.ghost');
+    if(!m.dataset.t0){ m.dataset.t0=t.textContent; m.dataset.p0=p.textContent; m.dataset.v0=vu.textContent; }
+    const falta=controlEspera() && siguienteEscucha()!==-1;   /* (12-nov-2026) la solución, con todas las escuchas hechas */
+    t.textContent = falta ? 'Todavía te quedan escuchas' : m.dataset.t0;
+    p.textContent = falta ? 'Haz todas las escuchas, en orden, antes de ver la solución.' : m.dataset.p0;
+    vu.textContent = falta ? 'Seguir con el dictado' : m.dataset.v0;
+    ok.style.display = falta ? 'none' : '';
+    m.classList.add('show');
+  }
   function closeSolModal(){ document.getElementById('solModal').classList.remove('show'); }
   function revealSolucion(){
     fullRevealed=true; keyRevealed=true; tsRevealed=true; closeSolModal(); redraw();
@@ -8674,7 +8721,7 @@ const DSgen = (function(){
     hintsBlocked=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
-    SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
+    SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0;
     // desbloquear visualmente las pistas y aplicar visibilidad por curso
     ['btnRevKey','btnRevTs','btnPistaRit','btnPistaMel'].forEach(id=>{ const b=document.getElementById(id); if(b){ b.classList.remove('spent'); b.classList.remove('blocked'); } });
     updateHintButtonsForCourse();
@@ -8706,7 +8753,7 @@ const DSgen = (function(){
     revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=false; tsRevealed=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
-    SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
+    SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0;
     renderSeq(); redraw();
   }
 
@@ -8926,7 +8973,7 @@ const DSgen = (function(){
       revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=true; tsRevealed=true;
       disablePistaPicking();
       const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
-      SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
+      SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0;
       renderSeq(); redraw();
       return DICTADO;
     },
@@ -8938,7 +8985,7 @@ const DSgen = (function(){
       revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=true; tsRevealed=true;
       disablePistaPicking();
       const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
-      SEQ.forEach(s=>used[s.id]=0); advancedPast=0;
+      SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0;
       renderSeq(); redraw();
       return DICTADO;
     }
