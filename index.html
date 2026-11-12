@@ -10881,6 +10881,11 @@ window.DictadoVideo = (function(){
   'use strict';
   var P=new URLSearchParams(location.search);
   var esVideo=(P.get('video')==='1');
+  /* (12-nov-2026, Iago) «eliminar de Dictado at home lo de ver el vídeo animado: que lo tengan que hacer ellos
+     pulsando cada una de las repeticiones» (así su tiempo cuenta en «Mi actitud»). Sin botón y, si llega un
+     enlace antiguo con ?video=1, vuelve al modo normal. Para recuperarlo: borrar este bloque. */
+  if(esVideo){ try{ P.delete('video'); location.replace(location.pathname+(P.toString()?'?'+P.toString():'')); }catch(e){} }
+  return;
   function dvLabel(id){
     var m=(id||'').match(/^ge(\d)$/i); if(m) return m[1]+'º GE';
     var g=(id||'').match(/^gp(\d)$/i); if(g) return g[1]+'º GP';
