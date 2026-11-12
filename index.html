@@ -6976,6 +6976,30 @@ const DSgen = (function(){
      Para quitarlo: ESPERA_ACTIVA=false. */
   const ESPERA_ACTIVA=true, ESPERA_MS=20000, ESPERA_REF_MS=5000;
   let esperaHasta=0, esperaTick=null;
+  /* (12-nov-2026, Iago) «solo cuenta el dictado cuando ha sido terminado y corregido, cuando se abre la solución: ahí el tiempo
+     para de contar y se registra»; «lo máximo que le va a contabilizar son 45 segundos entre repeticiones… entre tonalidad y
+     acordes, lo máximo 20». Tiempo = lo que suena + cada espera con su tope. Se manda una vez, al abrir la solución. */
+  const TOPE_MS=45000, TOPE_REF_MS=20000;
+  let tCuenta=0, tIniPlay=0, tFinPlay=0, kindFin=null, dictadoEnviado=false;
+  function resetCuenta(){ tCuenta=0; tIniPlay=0; tFinPlay=0; kindFin=null; dictadoEnviado=false; }
+  function sumaEspera(){ if(tFinPlay){ tCuenta+=Math.min(Date.now()-tFinPlay, kindFin==='ref'?TOPE_REF_MS:TOPE_MS); tFinPlay=0; } }
+  function cierraPlay(idx){ if(tIniPlay){ tCuenta+=Date.now()-tIniPlay; tIniPlay=0; tFinPlay=Date.now(); kindFin=(SEQ[idx]||{}).kind||null; } }
+  function leeCuenta(grado){
+    try{ const m=new RegExp('(?:^|;\\s*)lm_cta_'+grado+'=([0-9a-fA-F-]{36})').exec(document.cookie||''); if(m) return m[1]; }catch(e){}
+    try{ const ses=JSON.parse(localStorage.getItem(grado==='gp'?'lmpro_session':'lmeav_session')||'null'); if(ses&&ses.id&&ses.estado==='validado') return ses.id; }catch(e){}
+    return null;
+  }
+  function registraDictado(){
+    if(dictadoEnviado || !controlEspera() || siguienteEscucha()!==-1) return;
+    sumaEspera(); dictadoEnviado=true;
+    const c=window.DS_ACTIVE_COURSE||'', grado=(c==='gp1'||c==='gp2')?'gp':'ge', cuenta=leeCuenta(grado);
+    const seg=Math.round(tCuenta/1000); window.__DICT_SEG=seg;
+    if(!cuenta || seg<1) return;
+    try{ fetch('https://woiptkyrxkbpnvioypit.supabase.co/rest/v1/rpc/suite_dictado_terminado',{method:'POST',keepalive:true,
+      headers:{'Content-Type':'application/json',apikey:ANON_DT,Authorization:'Bearer '+ANON_DT},
+      body:JSON.stringify({p_cuenta_id:cuenta,p_grado:grado,p_segundos:seg})}).catch(function(){}); }catch(e){}
+  }
+  const ANON_DT='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvaXB0a3lyeGticG52aW95cGl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NzI2ODYsImV4cCI6MjA5MjA0ODY4Nn0.B2nKgj5rD0rkdLeMIrd9KgD8lUPWsBT4Y7aCtmnvbjA';
   function enEdicion(){ try{ const e=document.getElementById('editBar'); return !!(e && e.style.display!=='none'); }catch(x){ return false; } }
   function controlEspera(){ return ESPERA_ACTIVA && !enEdicion(); }
   function siguienteEscucha(){ for(let j=0;j<SEQ.length;j++){ if(used[SEQ[j].id]<seqMax(SEQ[j])) return j; } return -1; }
@@ -7900,7 +7924,7 @@ const DSgen = (function(){
   }
   function finishPlayback(seqIdx){
     playing=false; currentPlayingIdx=null; highlightBar(null);
-    if(seqIdx!=null){ markDotDone(seqIdx); setCardPlaying(seqIdx,false); arrancaEspera(seqIdx); }
+    if(seqIdx!=null){ markDotDone(seqIdx); setCardPlaying(seqIdx,false); cierraPlay(seqIdx); arrancaEspera(seqIdx); }
     if(beatBlinkTimer){ clearInterval(beatBlinkTimer); beatBlinkTimer=null; }
     clearCountdown();
     renderSeq();
@@ -7913,7 +7937,7 @@ const DSgen = (function(){
     document.getElementById('countInOverlay').style.display='none';
     const idx=currentPlayingIdx;
     playing=false; currentPlayingIdx=null; highlightBar(null);
-    if(idx!=null){ markDotDone(idx); setCardPlaying(idx,false); arrancaEspera(idx); }
+    if(idx!=null){ markDotDone(idx); setCardPlaying(idx,false); cierraPlay(idx); arrancaEspera(idx); }
     if(beatBlinkTimer){ clearInterval(beatBlinkTimer); beatBlinkTimer=null; }
     renderSeq();
   }
@@ -8097,6 +8121,7 @@ const DSgen = (function(){
     if(idx>advancedPast) advancedPast=idx;
     const useIdx=used[s.id];   // 0-based: qué repetición es esta (antes de incrementar)
     used[s.id]++;
+    sumaEspera(); tIniPlay=Date.now();   /* (12-nov-2026) tiempo del dictado */
     playing=true; currentPlayingIdx=idx;  // marcar ANTES de renderSeq para que el icono salga en PAUSA
     renderSeq();
     markDotPlaying(idx);
@@ -8679,6 +8704,7 @@ const DSgen = (function(){
   }
   function closeSolModal(){ document.getElementById('solModal').classList.remove('show'); }
   function revealSolucion(){
+    try{ registraDictado(); }catch(e){}   /* (12-nov-2026) dictado terminado: se registra su tiempo */
     fullRevealed=true; keyRevealed=true; tsRevealed=true; closeSolModal(); redraw();
     const host=document.getElementById('dictScore');
     const svg=host?host.querySelector('svg'):null;
@@ -8721,7 +8747,7 @@ const DSgen = (function(){
     hintsBlocked=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
-    SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0;
+    SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0; resetCuenta();
     // desbloquear visualmente las pistas y aplicar visibilidad por curso
     ['btnRevKey','btnRevTs','btnPistaRit','btnPistaMel'].forEach(id=>{ const b=document.getElementById(id); if(b){ b.classList.remove('spent'); b.classList.remove('blocked'); } });
     updateHintButtonsForCourse();
@@ -8753,7 +8779,7 @@ const DSgen = (function(){
     revealedPulses=new Set(); fullRevealed=false; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=false; tsRevealed=false;
     disablePistaPicking();
     const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
-    SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0;
+    SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0; resetCuenta();
     renderSeq(); redraw();
   }
 
@@ -8973,7 +8999,7 @@ const DSgen = (function(){
       revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=true; tsRevealed=true;
       disablePistaPicking();
       const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
-      SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0;
+      SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0; resetCuenta();
       renderSeq(); redraw();
       return DICTADO;
     },
@@ -8985,7 +9011,7 @@ const DSgen = (function(){
       revealedPulses=new Set(); fullRevealed=true; pistaRit=null; pistaMel=null; pistaPick=null; resetGpPista(); applyDictadoBpm(); keyRevealed=true; tsRevealed=true;
       disablePistaPicking();
       const hint=document.getElementById('pistaHint'); if(hint) hint.style.display='none';
-      SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0;
+      SEQ.forEach(s=>used[s.id]=0); advancedPast=0; esperaHasta=0; resetCuenta();
       renderSeq(); redraw();
       return DICTADO;
     }
