@@ -6874,7 +6874,24 @@ const DSaudio = (function(){
   let ac=null, piano=null, loading=null;
   let activeNodes=[];   // nodos del piano sonando o programados
   let activeOsc=[];     // osciladores de claqueta
-  function ctx(){ if(!ac) ac=new (window.AudioContext||window.webkitAudioContext)(); return ac; }
+  /* (14-nov-2026, Iago) Lucas (4B, iPad): «a veces se me silencia, no se escucha». En el iPad, Safari deja el audio en estado
+     «interrupted» (aviso, Siri, otra app, pantalla apagada, cambio de auriculares…) y solo se reanudaba si estaba «suspended».
+     Ahora: audio en modo reproducción (no lo silencia el modo silencio), se reanuda en cualquier estado que no sea «running»,
+     al volver a la pestaña también, y si el contexto se cerró se crea otro. */
+  function ctx(){
+    if(!ac || ac.state==='closed'){
+      ac=new (window.AudioContext||window.webkitAudioContext)(); piano=null; loading=null;
+      try{ if(navigator.audioSession) navigator.audioSession.type='playback'; }catch(e){}
+    }
+    return ac;
+  }
+  try{
+    var despierta=function(){ try{ if(ac && ac.state!=='running' && ac.state!=='closed') ac.resume(); }catch(e){} };
+    document.addEventListener('visibilitychange', function(){ if(!document.hidden) despierta(); });
+    window.addEventListener('pageshow', despierta);
+    window.addEventListener('focus', despierta);
+    ['pointerdown','touchend','keydown'].forEach(function(t){ document.addEventListener(t, despierta, true); });
+  }catch(e){}
   function ensurePiano(){
     if(piano) return Promise.resolve(piano);
     if(loading) return loading;
@@ -7862,7 +7879,7 @@ const DSgen = (function(){
   function playRange(fromMeas, toMeas, seqIdx, emphVoice){
     playing=true; currentPlayingIdx=seqIdx;
     DSaudio.ensurePiano().then(()=>{
-      const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
+      const ac=DSaudio.ctx(); if(ac.state!=='running') ac.resume();
       const t0=ac.currentTime+0.12, bpb=DICTADO.beatsPerBar;
       // sin claqueta de entrada: la cuenta atrás 3·2·1 previa ya dio el tempo
       const musicStart=t0;
@@ -7947,7 +7964,7 @@ const DSgen = (function(){
   // La3 (57), no La4: queda dentro de la tesitura Sol2–Do4 del dictado.
   function playTonicRef(){
     DSaudio.ensurePiano().then(()=>{
-      const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
+      const ac=DSaudio.ctx(); if(ac.state!=='running') ac.resume();
       const t=ac.currentTime+0.1;
       const refLa=(DICTADO && DICTADO.clef==='bass') ? 57 : 69;  // La3 en clave de fa · La4 en clave de sol
       playNote(refLa, t, 0.9, false);            // La de referencia
@@ -7974,7 +7991,7 @@ const DSgen = (function(){
   }
   function playChords(){
     DSaudio.ensurePiano().then(()=>{
-      const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
+      const ac=DSaudio.ctx(); if(ac.state!=='running') ac.resume();
       const chords=chordVoicings(), dur=1.35, gap=1.6;
       // separación temporal ANTES del primer acorde, igual que el silencio La->tónica de la referencia
       const startGap=1.6;
@@ -8478,7 +8495,7 @@ const DSgen = (function(){
   // pequeño tick de audio al deslizar la rueda
   function wheelTick(){
     try{
-      const ac=DSaudio.ctx(); if(ac.state==='suspended') ac.resume();
+      const ac=DSaudio.ctx(); if(ac.state!=='running') ac.resume();
       const t=ac.currentTime;
       const osc=ac.createOscillator(), g=ac.createGain();
       osc.frequency.value=520;
