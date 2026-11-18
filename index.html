@@ -6885,8 +6885,34 @@ const DSaudio = (function(){
     }
     return ac;
   }
+  /* (18-nov-2026, Lucas otra vez: «a partir de la 1.ª escucha le doy a empezar y no me suena; salgo y entro sin cerrar la
+     pestaña pero no se arregla»). Tres cosas más:
+     1) si el piano no llegaba a cargar (red), se quedaba «roto» hasta recargar la página: ahora se reintenta (y con tope de 15 s);
+     2) si el audio sigue «atascado» (interrupted) al tocar, se crea un audio NUEVO dentro del propio toque (lo que iOS deja);
+     3) si al arrancar una escucha el audio no está sonando, NO se gasta: se avisa «toca la pantalla y vuelve a darle». */
+  let atascado=false;
+  function silencio(c){ try{ const b=c.createBuffer(1,1,22050), so=c.createBufferSource(); so.buffer=b; so.connect(c.destination); so.start(0); }catch(e){} }
+  function nuevoCtx(){ try{ if(ac && ac.state!=='closed') ac.close(); }catch(e){} ac=null; atascado=false; return ctx(); }
+  // en un toque/tecla (gesto): reanudar; si estaba atascado o «interrupted», audio nuevo; y el «silencio» que desbloquea iOS
+  function prepara(){
+    try{
+      let c=ctx();
+      if(c.state!=='running' && (atascado || c.state==='interrupted')) c=nuevoCtx();
+      if(c.state!=='running'){ try{ c.resume(); }catch(e){} }
+      silencio(c);
+      ensurePiano().catch(function(){});
+    }catch(e){}
+  }
+  // ¿está sonando? (espera como mucho 0,7 s a que se reanude)
+  function asegura(){
+    const c=ctx(); if(c.state==='running') return Promise.resolve(true);
+    let r; try{ r=c.resume(); }catch(e){ r=Promise.resolve(); }
+    return Promise.race([ Promise.resolve(r).then(function(){ return c.state==='running'; }).catch(function(){ return false; }),
+                          new Promise(function(res){ setTimeout(function(){ res(c.state==='running'); }, 700); }) ])
+      .then(function(ok){ if(!ok) atascado=true; return ok; });
+  }
   try{
-    var despierta=function(){ try{ if(ac && ac.state!=='running' && ac.state!=='closed') ac.resume(); }catch(e){} };
+    var despierta=function(ev){ try{ if(ac && ac.state!=='running' && ac.state!=='closed'){ if(ev && ev.type && ev.type!=='visibilitychange' && ev.type!=='pageshow' && ev.type!=='focus') prepara(); else ac.resume(); } }catch(e){} };
     document.addEventListener('visibilitychange', function(){ if(!document.hidden) despierta(); });
     window.addEventListener('pageshow', despierta);
     window.addEventListener('focus', despierta);
@@ -6895,9 +6921,14 @@ const DSaudio = (function(){
   function ensurePiano(){
     if(piano) return Promise.resolve(piano);
     if(loading) return loading;
-    loading = Soundfont.instrument(ctx(), 'acoustic_grand_piano', {
-      soundfont:'MusyngKite', nameToUrl:(name,sf)=>'https://gleitz.github.io/midi-js-soundfonts/'+sf+'/'+name+'-mp3.js'
-    }).then(p=>{ piano=p; return p; });
+    const c0=ctx();
+    loading = Promise.race([
+      Soundfont.instrument(c0, 'acoustic_grand_piano', {
+        soundfont:'MusyngKite', nameToUrl:(name,sf)=>'https://gleitz.github.io/midi-js-soundfonts/'+sf+'/'+name+'-mp3.js'
+      }),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('el piano no ha cargado (15 s)')),15000))
+    ]).then(p=>{ if(c0!==ac) { loading=null; return ensurePiano(); } piano=p; return p; })
+      .catch(e=>{ loading=null; throw e; });   /* (18-nov-2026) si falla, la próxima vez se vuelve a intentar */
     return loading;
   }
   function track(node){ if(node) activeNodes.push(node); }
@@ -6908,7 +6939,7 @@ const DSaudio = (function(){
     activeOsc.forEach(o=>{ try{ o.stop(); }catch(e){} });
     activeOsc=[];
   }
-  return { ctx, ensurePiano, track, trackOsc, stopAll };
+  return { ctx, ensurePiano, track, trackOsc, stopAll, prepara, asegura };
 })();
 
 /* ========== GENERADOR / REPRODUCCIÓN ========== */
@@ -7876,10 +7907,24 @@ const DSgen = (function(){
     }
     timers.push(setTimeout(()=>{ ov.style.display='none'; }, (startAt+COUNT_IN_PULSES*beatSec()-ac.currentTime)*1000));
   }
+  /* (18-nov-2026) aviso cuando una escucha no puede sonar (no se gasta) */
+  function avisoSinSonido(txt){
+    try{
+      let d=document.getElementById('dsSinSonido');
+      if(!d){ d=document.createElement('div'); d.id='dsSinSonido';
+        d.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:99999;max-width:92vw;padding:14px 18px;border-radius:12px;background:#b45309;color:#fff;font:600 16px/1.35 system-ui,-apple-system,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.4);text-align:center';
+        d.addEventListener('click',()=>{ d.remove(); });
+        document.body.appendChild(d); }
+      d.textContent=txt;
+      clearTimeout(d._t); d._t=setTimeout(()=>{ try{ d.remove(); }catch(e){} }, 9000);
+    }catch(e){}
+  }
   function playRange(fromMeas, toMeas, seqIdx, emphVoice){
     playing=true; currentPlayingIdx=seqIdx;
-    DSaudio.ensurePiano().then(()=>{
-      const ac=DSaudio.ctx(); if(ac.state!=='running') ac.resume();
+    const noSuena=(txt)=>{ playing=false; currentPlayingIdx=null; try{ setCardPlaying(seqIdx,false); }catch(e){} clearCountdown(); renderSeq(); avisoSinSonido(txt); };
+    DSaudio.ensurePiano().then(()=>DSaudio.asegura()).then(ok=>{
+      if(!ok){ noSuena('🔇 No suena el audio. Toca la pantalla y vuelve a darle a ▶ — esta escucha no se ha gastado.'); return; }
+      const ac=DSaudio.ctx();
       const t0=ac.currentTime+0.12, bpb=DICTADO.beatsPerBar;
       // sin claqueta de entrada: la cuenta atrás 3·2·1 previa ya dio el tempo
       const musicStart=t0;
@@ -7937,7 +7982,7 @@ const DSgen = (function(){
       cursor = musicStart + (toMeas-fromMeas)*bpb*beatSec();
       const endMs=(cursor-ac.currentTime)*1000;
       timers.push(setTimeout(()=>{ finishPlayback(seqIdx); }, endMs+50));
-    }).catch(e=>{ playing=false; console.error(e); });
+    }).catch(e=>{ console.error(e); noSuena('🔇 No ha cargado el sonido del piano (conexión). Vuelve a darle a ▶ — esta escucha no se ha gastado.'); });
   }
   function finishPlayback(seqIdx){
     playing=false; currentPlayingIdx=null; highlightBar(null);
@@ -8160,6 +8205,7 @@ const DSgen = (function(){
 
   // cuenta atrás 3·2·1 a velocidad de pulso, luego arranca la reproducción
   function playWithCountdown(startFn, idx){
+    try{ DSaudio.prepara(); }catch(e){}   /* (18-nov-2026) dentro del toque: desbloquea el audio y va cargando el piano */
     setCardPlaying(idx,true);
     runCountdown(()=>{ if(playing) startFn(); });
   }
